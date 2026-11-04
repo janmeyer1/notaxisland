@@ -1556,9 +1556,12 @@ async function lastArmyDrama(a, by) {
   say('tortoise', by === 'you' ? 'That was you. Don\'t let it go to your head — it\'s already in mine.' : 'It doesn\'t like being leaned on. Neither do I.');
 }
 // v063: every 10 tides the Board lands supplies for the rot — a barge past the wreck, crates on the sand, and one more spearhead per network
-function landeZiel() { const w = G.wreck >= 0 ? G.wreck : T.find(t => t.reg === 5).id; const land = [...T[w].nb].filter(n => T[n].reg !== 5); return land.sort((a, b) => T[b].b - T[a].b)[0] ?? G.start; }
+function landeZiel() {   // a coast tile you can see, as close to the rot as possible; the water tile next to it is where the barge comes from
+  const coast = T.filter(t => t.reg !== 5 && t.state > 0 && [...t.nb].some(n => T[n].reg === 5)), nests = T.filter(t => t.source === 'nest');
+  const dN = t => nests.length ? Math.min(...nests.map(n => Math.hypot(...[0, 1].map(k => tileXY(n.id)[k] - tileXY(t.id)[k])))) : 0;
+  const z = coast.sort((a, b) => (b.b - a.b) || (dN(a) - dN(b)))[0] || T[G.start]; const w = [...z.nb].find(n => T[n].reg === 5); return { z: z.id, w: w !== undefined ? w : (G.wreck >= 0 ? G.wreck : z.id) }; }
 async function nachschubSzene() {
-  const z = landeZiel(), [ex, ey] = tileXY(z), [wx, wy] = G.wreck >= 0 ? tileXY(G.wreck) : [ex, ey + 80], dx = wx - CW / 2, dy = wy - CH / 2, L = Math.hypot(dx, dy) || 1;
+  const lz = landeZiel(), z = lz.z, [ex, ey] = tileXY(z), [wx0, wy0] = tileXY(lz.w), dx0 = wx0 - ex, dy0 = wy0 - ey, L0 = Math.hypot(dx0, dy0) || 1, wx = ex + dx0 / L0 * 70, wy = ey + dy0 / L0 * 50, dx = wx - CW / 2, dy = wy - CH / 2, L = Math.hypot(dx, dy) || 1;
   G.landung = { t0: G.now, sx: wx + dx / L * 260, sy: wy + dy / L * 160, ex: wx + (ex - wx) * .55, ey: wy + (ey - wy) * .55, lx: ex, ly: ey, crates: [] };
   camGo({ x: (wx + ex) / 2, y: (wy + ey) / 2, z: Math.max(CAM.z, CAM.zMax * .7) }, .8); sfxDrum();
   await sleep(5200);
@@ -1568,7 +1571,7 @@ async function nachschubSzene() {
 }
 function drawLandung(c, t) {
   const L = G.landung; if (!L) return; const e = G.now - L.t0, p = clamp(e / 3.2, 0, 1), q = p * p * (3 - 2 * p), x = L.sx + (L.ex - L.sx) * q, y = L.sy + (L.ey - L.sy) * q + Math.sin(e * 2) * 1.5;
-  c.save(); c.translate(x, y);   // the barge: grey hull, a little wheelhouse, the Board's flag
+  c.save(); c.translate(x, y); c.scale(1.6, 1.6);   // the barge: grey hull, a little wheelhouse, the Board's flag
   c.fillStyle = 'rgba(0,0,0,.25)'; c.beginPath(); c.ellipse(0, 6, 34, 6, 0, 0, 7); c.fill();
   c.fillStyle = '#4a5258'; c.beginPath(); c.moveTo(-32, -2); c.lineTo(30, -2); c.lineTo(24, 7); c.lineTo(-28, 7); c.closePath(); c.fill();
   c.fillStyle = '#2e3438'; c.fillRect(-26, -10, 12, 8); c.fillStyle = '#6b4a2a'; for (let k = 0; k < 4; k++) if (e < 3.4 + k * .35) c.fillRect(-8 + k * 9, -9, 8, 7);

@@ -71,13 +71,13 @@ async def main():
         await settle(pg, 6)
         print('3 · roots, withered roots, the trebuchet, the harvest')
         r = await pg.evaluate("""(() => { const G = INSEL.G, T = INSEL.T, t = T.find(x => x.state > 0 && !x.rooted && x.reg !== 5 && !x.source && x.b < 2 && INSEL.canGrowTo(x) && INSEL.rootCap(x.id) >= 2); if (!t) return { none: true };
-          INSEL.setRooted(t, true); const rs = t.rs; t.rs = 1; INSEL.welken(t, 0, 0); const w = { welk: t.welk, rooted: t.rooted }; t.b = 0; const n = INSEL.welkNachwachsen(); return { rs, w, back: t.rooted && t.rs === 1 && !t.welk, n }; })()""")
-        check(r.get('rs') == 2 and r['w'] == {'welk': True, 'rooted': False} and r['back'], f'a new root starts at 2; a root at 0 withers and regrows on a clean tile ({r})')
+          INSEL.setRooted(t, true); const rs = t.rs; t.rs = 1; INSEL.welken(t, 0, 0); const w = { welk: t.welk, rooted: t.rooted }; t.b = 0; const n0 = INSEL.welkNachwachsen(), same = t.rooted; G.tide++; const n = INSEL.welkNachwachsen(); G.tide--; return { rs, w, same, back: t.rooted && t.rs === 1 && !t.welk, n }; })()""")
+        check(r.get('rs') == 1 and r['w'] == {'welk': True, 'rooted': False} and not r['same'] and r['back'], f'v063: a new root starts at 1; a root at 0 withers, stays withered that flood, regrows the next on a clean tile ({r})')
         r = await pg.evaluate("""(() => { const G = INSEL.G, T = INSEL.T, d = INSEL.distToStart();
-          const pair = T.filter(a => a.reg !== 5 && !a.source && !a.content && a.id !== G.banyan && !G.banyans.includes(a.id)).flatMap(a => [...a.nb].filter(n => T[n].reg !== 5 && !T[n].source && T[n].b < 3 && d[n] < d[a.id] && n !== G.cave).map(n => [a.id, n]))[0]; if (!pair) return { none: true };
-          const [x, y] = pair, X = T[x], Y = T[y]; X.b = 3; X.rooted = false; X.rs = 0; X.full3 = G.tide - 1; Y.rooted = true; Y.rs = 2; Y.b = 0; G.omen = null; INSEL.planFlood(true);
-          const planned = !!(G.tinfo[y] && G.tinfo[y].overflow && G.tinfo[y].from === x); return { planned, aim: INSEL.treboZiel(x) === y, x, y }; })()""")
-        check(r.get('planned') and r.get('aim'), f'a rootless rot-3 tile plans its trebuchet shot at the neighbour nearest the banyan, and aims there ({r})')
+          const pair = T.filter(a => a.reg !== 5 && a.type !== 'slope' && !a.source && !a.content && a.id !== G.banyan && !G.banyans.includes(a.id)).flatMap(a => [...a.nb].filter(n => T[n].reg !== 5 && !T[n].source && T[n].b < 3 && d[n] < d[a.id] && n !== G.cave).map(n => [a.id, n]))[0]; if (!pair) return { none: true };
+          const [x, y] = pair, X = T[x], Y = T[y]; X.b = 3; X.rooted = false; X.rs = 0; X.full3 = G.tide - 1; delete X.turm; delete X.trebo; Y.rooted = true; Y.rs = 2; Y.b = 0; G.board.tr = 100; G.ruheBis = undefined; INSEL.planFlood(true);
+          const z = Object.keys(G.tinfo).find(k => G.tinfo[k].overflow && G.tinfo[k].from === x); return { planned: z !== undefined, aim: z !== undefined && INSEL.treboZiel(x) === +z && [...X.nb].includes(+z), x, y, steep: INSEL.steil(X) }; })()""")
+        check(r.get('planned') and r.get('aim'), f'v063: a rootless rot-3 tile at the front fires the flood after it was built, at a neighbour, and aims there ({r})')
         r = await pg.evaluate("""(async () => { const G = INSEL.G, T = INSEL.T; const x = %d, y = %d; await INSEL.treboSchuss(x, y); const a = { rs: T[y].rs, b: T[y].b }; T[y].rooted = false; T[y].rs = 0; T[y].welk = false; await INSEL.treboSchuss(x, y); return { first: a, second: T[y].b }; })()""" % (r.get('x', 0), r.get('y', 0)))
         check(r['first'] == {'rs': 1, 'b': 0} and r['second'] == 1, f'the ball always lands: root −1 first, +1 rot only without a root ({r})')
         h = await pg.evaluate("(() => { const T = INSEL.T, f = T.find(t => t.content && t.content.res === 'fruit'); f.rooted = true; f.rs = 2; f.b = 0; f.prot = true; return INSEL.ernte(); })()")

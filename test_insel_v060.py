@@ -26,7 +26,7 @@ async def main():
         br = await p.chromium.launch(); pg = await br.new_page(viewport={'width': 1280, 'height': 720})
         errs = []; pg.on('pageerror', lambda e: errs.append(str(e)))
         await pg.goto('file://' + FILE); await pg.wait_for_timeout(1200)
-        await pg.evaluate("localStorage.clear(); localStorage.setItem('robinson_beach_mode', 'real')")
+        await pg.evaluate("localStorage.clear(); localStorage.setItem('robinson_beach_mode', 'real'); localStorage.setItem('robinson_tutorials', 'off')")
         await pg.evaluate("STRAND.applyCheckpoint('T14'); 0"); await pg.wait_for_timeout(2000)
         await pg.evaluate("SPIEL.zeige('insel', { force: true }); 0")
         for _ in range(100):
@@ -39,7 +39,7 @@ async def main():
           if (!T[G.at].prot) INSEL.act('protect', G.at); if (G.wFree < 2) G.wFree = 2;
           G.sel = G.banyan; INSEL.renderPanel(); const b = [...document.querySelectorAll('#insel #panel button')].map(x => x.dataset.a + (x.disabled ? '(off)' : ''));
           return { at: G.at === G.banyan, friend: !!G.friends.banyan, btns: b, course: (INSEL.kurs() || {}).step }; })()""")
-        check(r['at'] and not r['friend'] and 'listen' in r['btns'] and r['course'] == 'wait', f'on the banyan, not yet a friend: Listen button, course says listen ({r})')
+        check(r['at'] and not r['friend'] and 'listen' in r['btns'], f'on the banyan, not yet a friend: Listen button ({r})')
         await pg.evaluate("document.querySelector('#insel #panel button[data-a=\"listen\"]').click()"); await pg.wait_for_timeout(500)
         r = await pg.evaluate("""(() => { const G = INSEL.G; return { friend: !!G.friends.banyan, listen: !!G.unl.listen, tree: G.banyans.includes(G.banyan), spring: G.springSrc.filter(s => s === 'banyan').length, b: INSEL.T[G.banyan].b,
           card: document.querySelector('#insel #cardT').textContent, cardOn: document.querySelector('#insel #card').style.display }; })()""")
@@ -62,7 +62,7 @@ async def main():
         r = await pg.evaluate("({ sap: INSEL.G.sap || 0, last: INSEL.G.lastSap, friend: !!INSEL.G.friends.banyan, tree: INSEL.G.banyans.includes(INSEL.G.banyan), over: !!INSEL.G.over })")
         check(r['friend'] and r['tree'] and (r['last'] or 0) > 0 and not r['over'], f'sap after the flood ({r}, before {s0})')
         print('4 · the course points with a green arrow')
-        check(await pg.evaluate("(() => { INSEL.kurs(); return INSEL.G.kursZ >= 0 || !!INSEL.G.flags.kursAus; })()"), 'the arrow has a target while the course runs')
+        # v063: the course arrow belongs to the tutorial now (test_insel_v061.py)
         print('5 · repair of a v059 save: friend, but not a living tree')
         r = await pg.evaluate("""(() => { const st = SPIEL.zustand(); const G = st.m.G; G.banyans = G.banyans.filter(b => b !== G.banyan); G.springSrc = G.springSrc.filter(s => s !== 'banyan'); G.springMax--; G.unl.listen = true; G.friends.banyan = true;
           const sm = G.springMax; return SPIEL.laden(st).then(() => ({ tree: INSEL.G.banyans.includes(INSEL.G.banyan), spring: INSEL.G.springMax === sm + 1, src: INSEL.G.springSrc.includes('banyan') })); })()""")
