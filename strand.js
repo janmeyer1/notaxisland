@@ -154,7 +154,7 @@ function trackHTML() {
 function renderTrack(node) { node.innerHTML = trackHTML(); }
 function milestone(w, icon) { S.ms[Math.max(1, w)] = icon; }
 // v033: no separate beach log any more — the save file (spiel.js) is the log; the beach gives it its readable columns (bilanz)
-const S_SKIP = new Set(['kampf', 'res', 'warte', 'flutBoss', 'spent', 'katzeWeg', 'pointers', 'keys', 'floats', 'parts', 'crabs', 'cut', 'wake', 'swim', 'openNut', 'hint', 'round', 'busy', 'fade', 'wl', 'time', 'flot', 'ffind', 'lastAct', '_snap', 'screen']);
+const S_SKIP = new Set(['kampf', 'res', 'autoLetzt', 'warte', 'flutBoss', 'spent', 'katzeWeg', 'pointers', 'keys', 'floats', 'parts', 'crabs', 'cut', 'wake', 'swim', 'openNut', 'hint', 'round', 'busy', 'fade', 'wl', 'time', 'flot', 'ffind', 'lastAct', '_snap', 'screen']);
 function beachState(first) { const b = {}; Object.keys(S).forEach(k => { if (!S_SKIP.has(k) && typeof S[k] !== 'function') b[k] = S[k]; }); return { v: RSAVE.V, module: 'beach', tide: S.day, first: !!first, b: JSON.parse(JSON.stringify(b)) }; }   // v030: tide = the shared tide counter (= day)
 const S_GRUND = JSON.parse(JSON.stringify(beachState(true).b));   // v062: the beach as it is before anything happens — the logbook only writes what differs
 function beachLoad(st) {
@@ -788,7 +788,7 @@ function showResult() {
   el.resBtn.textContent = S.warte && S.warte.typ === 'kampf' ? 'Back to the island' : win ? 'Back to the beach' : 'Wake up';
   el.result.style.display = 'flex'; el.bubble.style.display = 'none'; BQ.q = []; BQ.on = false;
   updateHUD();
-  if (win) { const me = S.res; setTimeout(() => { if (S.res === me && el.result.style.display === 'flex') el.resBtn.click(); }, r.swept ? 1600 : 3000); }   // v036: a win moves on by itself
+  if (win || r.swept) { const me = S.res; setTimeout(() => { if (S.res === me && el.result.style.display === 'flex') el.resBtn.click(); }, r.swept ? 1600 : 3000); }   // v036: a win moves on by itself (v063: a tower ride too, won or lost)
 }
 el.resBtn.addEventListener('click', () => {
   if (!S.res || el.result.style.display !== 'flex') return;   // never twice
@@ -833,9 +833,14 @@ function autoChores() {   // v061: at the start of the ebb, and every chore cost
 // Gold (v062): the tower rides a stage at most 2 above the last one you beat by hand — about 70 % of your average haul there, no risk. Bosses are always yours.
 function wonRef() { let b = null; for (const k in S.wins) if (S.wins[k] && S.wins[k].n > 0 && +k <= S.flood && (b === null || +k > b)) b = +k; return b; }
 function sweepable() { const ref = wonRef(); return autoMode() === 'gold' && ref !== null && S.flood - ref <= 2 && (S.flutBoss === null || S.flutBoss === undefined) && !bossWelle(S.flood); }
+// v063: the tower can lose — the odds come from your upgrades against the stage, how far past your own last ride it is, and your stamina
+function goldChance() { const ref = wonRef(); if (ref === null) return 0; const power = Object.values(S.upg).reduce((a, v) => a + (v || 0), 0), gap = S.flood - ref, st = S.maxStamina ? S.stamina / S.maxStamina : .5;
+  return clamp(.72 + .03 * (power - 2 * S.flood) - .12 * gap + .15 * (st - .5), .1, .95); }
 function sweep() {
-  const w = S.wins[wonRef()], k = 0.7 / w.n, rnd = x => Math.floor(x + Math.random());
-  const r = { win: true, swept: true, t: 0, kills: Math.round(w.kills * k), total: Math.round(w.kills * k), gain: { green: Math.round(w.green * k), tails: rnd(w.tails * k), rum: rnd(w.rum * k) }, stam: S.stamina, seen: {} };
+  const w = S.wins[wonRef()], p = goldChance(), win = Math.random() < p, k = (win ? 0.7 : 0.3) / w.n, rnd = x => Math.floor(x + Math.random());
+  const r = { win, swept: true, chance: p, t: 0, kills: Math.round(w.kills * k), total: Math.round(w.kills * (0.7 / w.n)), gain: { green: Math.round(w.green * k), tails: rnd(w.tails * k), rum: rnd(w.rum * k) }, stam: win ? S.stamina : 0, seen: {} };
+  S.autoLetzt = { stage: S.flood, win, p: Math.round(p * 100), green: r.gain.green };
+  SPIEL.hinweis('🗼 The tower rode stage ' + S.flood + ' (' + Math.round(p * 100) + ' %): ' + (win ? 'won · +' + r.gain.green + ' 💚' : 'washed off · +' + r.gain.green + ' 💚, half stamina'));
   S.screen = 'combat'; S.kampf = true; S.combats++;
   setTimeout(() => endCombat(r, null), 600);
 }
@@ -1562,7 +1567,7 @@ WELT.api = {
   flutAlt() { if (!inCollect() || S.busy || S.wake) return; if (S.round) S.round.tide_free = S.tide; S.tide = 1; spendTide(); },   // the beach alone
   flut(info) {   // the wave fight of this flood; resolves after the result screen (the next beach ebb is already set up)
     return new Promise(res => { S.warte = { typ: 'flut', resolve: res }; S.flutBoss = info && info.boss !== undefined ? info.boss : null; el.panel.style.display = 'none'; S.busy = true; S.pointers.clear();
-      if (sweepable() && S.hasStamp) { banner('🗼 The tower rides stage ' + S.flood + ' for you…', 1400); sweep(); return; }
+      if (sweepable() && S.hasStamp) { banner('🗼 The tower rides stage ' + S.flood + ' for you · ' + Math.round(goldChance() * 100) + ' %…', 1400); sweep(); return; }
       if (autoMode() === 'gold' && S.hasStamp && S.flutBoss === null && !bossWelle(S.flood)) banner('🗼 The tower rides at most 2 stages past your own last ride — this one is yours', 2400);
       startFlood(); });
   },
@@ -1576,7 +1581,10 @@ WELT.api = {
     });
   },
   imKampf: () => !!S.kampf,
-  auto: () => ({ mode: autoMode(), lvl: towerLvl() }),
+  banner: (t, ms) => banner(t, ms),
+  autoLetzt: () => { const a = S.autoLetzt; S.autoLetzt = null; return a; },
+  auto: () => ({ mode: autoMode(), lvl: towerLvl(), chance: sweepable() ? Math.round(goldChance() * 100) : null }),
+  goldFaehrt: info => S.hasStamp && sweepable() && !(info && info.boss !== undefined && info.boss !== null),   // v063: the tower rides — no need to show the beach
   surfStand: () => ({ flood: S.flood, jump: S.upg.jump, cycle: S.upg.cycle, void: S.upg.void, cat: S.upg.catDive, board: S.upg.catBoard, tower: towerLvl(), glide: S.upg.glide || 0, flame: S.upg.flame || 0, map: !!S.mapUnlocked }),   // v044: for the rules screen
   autoToggle: () => autoToggle(),
   tagOhneKampf(grund) { if (S.round) finishRound(grund || 'island', 0, 0, 0, 0, !!SPIEL.turm()); S.day++; setupEbb(false); },   // no beach fight this flood

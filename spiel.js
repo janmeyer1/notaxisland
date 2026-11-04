@@ -97,7 +97,7 @@ export const SPIEL = {
   },
   async strandFlut(info) {   // called by the island in the middle of its flood · info: { skip, grund, boss }
     if (info.skip) { api('strand').tagOhneKampf(info.grund); return { skipped: true }; }
-    this.zeige('strand', { force: true });
+    if (!(api('strand').goldFaehrt && api('strand').goldFaehrt(info))) this.zeige('strand', { force: true });   // v063: a tower ride stays where you are
     return await api('strand').flut(info);
   },
   async surf(cfg) {   // v041: the one combat screen (world 'kampf'); the beach asks for a fight and gets the result back
@@ -149,6 +149,7 @@ export const SPIEL = {
   traumZu() { api('strand').hud(); if (this.inselBereit) { api('insel').hud(); if (api('insel').baumNeu) api('insel').baumNeu(); } },
   katzenSzene() { return api('strand').katzenSzene; },
   katze(o) { KATZE.zeigen(o); },
+  hinweis(txt) { if (aktiv === 'insel' && api('insel').toast) api('insel').toast(txt); else if (api('strand').banner) api('strand').banner(txt, 3000); },   // v063: a short note in whatever scene you are in
   // v062: a white-and-green ring around a UI element for a while (no click needed) — for the tortoise's "over there"
   ring(target, ms) { const e = typeof target === 'string' ? document.querySelector(target) : target; if (!e) return null; const d = document.createElement('div'); d.className = 'uiRing'; document.body.appendChild(d); const t0 = performance.now(), dur = ms || 10000;
     const f = () => { if (performance.now() - t0 > dur || !d.isConnected) { d.remove(); return; } const r = e.getBoundingClientRect(), vis = r.width > 0 && getComputedStyle(e).visibility !== 'hidden' && e.offsetParent !== null;
@@ -270,7 +271,7 @@ const KOMPASS = (() => {
     isl.style.display = sc.isl ? 'block' : 'none'; str.style.display = sc.str ? 'block' : 'none'; el.querySelectorAll('.ebbA').forEach(b => b.style.display = SPIEL.inselGestartet() ? 'block' : 'none');
     isl.title = aktiv === 'insel' ? 'Island · you are here' : sc.neu ? 'The island map' : 'To the island'; str.title = aktiv === 'strand' ? 'Beach · you are here' : 'To the beach';
     sc.tide = api('strand').tag ? api('strand').tag() : 0;
-    { const a = autoB(), ab = el.querySelector('#ebbAutoS'); ab.title = a.lvl ? 'Beach automation: ' + { off: 'off', silver: 'Silver — the tower does the beach chores', gold: 'Gold — chores, and it rides up to 2 stages past your own last ride' }[a.mode] + ' · tap to change' : 'Beach automation · needs the beach tower (island)'; ab.style.cursor = a.lvl ? 'pointer' : 'help'; sc.auto = a.mode + a.lvl; sc.ring = SPIEL.inselBereit && api('insel').turmRing && api('insel').turmRing(); }
+    { const a = autoB(), ab = el.querySelector('#ebbAutoS'); ab.title = a.lvl ? 'Beach automation: ' + { off: 'off', silver: 'Silver — the tower does the beach chores', gold: 'Gold — chores, and it rides up to 2 stages past your own last ride' + (a.chance !== null && a.chance !== undefined ? ' · this flood: ' + a.chance + ' % to win' : ' · this flood is yours') }[a.mode] + ' · tap to change' : 'Beach automation · needs the beach tower (island)'; ab.style.cursor = a.lvl ? 'pointer' : 'help'; sc.auto = a.mode + a.lvl; sc.ring = SPIEL.inselBereit && api('insel').turmRing && api('insel').turmRing(); }
     const key = [sc.auto, sc.ring ? Math.round(t * 6) : 0, st.n, st.max, is && is.n, is && is.max, is && is.spring, is && is.springMax, is && is.flash, pulse || hint ? Math.round(t * 8) : 0, aktiv, sc.isl, sc.str, sc.tide].join();
     if (key !== last) { last = key; draw(st, is, pulse, t, sc, hint); }
   }
@@ -321,9 +322,16 @@ const KOMPASS = (() => {
     const arc = (mid, n, left, kind, sp) => { for (let i = 0; i < n; i++) icon(mid + (i - (n - 1) / 2) * sp, i >= n - left, kind); };
     if (is) for (let i = 0; i < is.max; i++) icon(234 - i * 15.5 * 8 / Math.max(8, is.max), i >= is.max - is.n, 'b');
     for (let i = 0; i < st.max; i++) icon(-54 + i * 15.5 * 8 / Math.max(8, st.max), i >= st.max - st.n, 'c');
-    if (is && is.springMax) { const n = Math.min(is.springMax, 7); arc(-90, n, Math.min(is.spring, n), 'spark', 13);   // room for up to 7 sparks on top
-      if (is.springMax > 7) { c.fillStyle = '#fff2b0'; c.font = '700 11px Fredoka, sans-serif'; c.textAlign = 'center'; c.fillText('+' + (is.springMax - 7), CX, CY - OR - 14); } }
-    if (is && is.flash) { c.save(); c.strokeStyle = 'rgba(255,226,120,' + (.5 + .5 * Math.sin(t * 12)) + ')'; c.lineWidth = 5; c.shadowColor = '#ffe08a'; c.shadowBlur = 14; c.beginPath(); c.arc(CX, CY, OR + 10, -Math.PI * .85, -Math.PI * .15); c.stroke(); c.restore(); }   // v061: a new spring tide
+    // v063: the spring tides have fixed places from the start — 12 slots in two rows on top (gold = ready, outline = spent this ebb, a faint dot = not earned yet); nothing grows, nothing blinks for long
+    if (is) { const SM = 12, per = 6, sp = 11, mx = is.springMax || 0, left = Math.min(is.spring || 0, mx);
+      for (let i = 0; i < SM; i++) { const row = i < per ? 0 : 1, j = row ? i - per : i, a = -90 + (j - (per - 1) / 2) * sp, [x, y] = P(a, OR + row * 22);
+        if (i >= mx) { c.fillStyle = 'rgba(255,240,190,.28)'; c.beginPath(); c.arc(x, y, 1.8, 0, 7); c.fill(); continue; }
+        c.save(); c.translate(x, y); const ready = i < left, neu = is.flash && i === mx - 1, k = neu ? 1 + .25 * Math.max(0, Math.sin(t * 6)) : 1; c.scale(.62 * k, .62 * k);
+        if (ready) { const g = c.createLinearGradient(-10, -10, 10, 10); g.addColorStop(0, '#fff2b0'); g.addColorStop(1, '#d49a2a'); c.fillStyle = g; c.fill(SPARK); c.strokeStyle = '#7a5210'; c.lineWidth = 1; c.stroke(SPARK); }
+        else { c.strokeStyle = 'rgba(255,240,190,.6)'; c.lineWidth = 1.4; c.stroke(SPARK); }
+        if (neu) { c.shadowColor = '#ffe08a'; c.shadowBlur = 12; c.strokeStyle = 'rgba(255,226,120,.9)'; c.lineWidth = 2; c.stroke(SPARK); }
+        c.restore(); }
+      if (mx > SM) { c.fillStyle = '#fff2b0'; c.font = '700 10px Fredoka, sans-serif'; c.textAlign = 'center'; c.fillText('+' + (mx - SM), CX, CY - OR - 34); } }
     // the button: a brass rim with degree marks and four golden points, the face split island blue / beach cyan
     const k = pulse ? 1 + .04 * Math.sin(t * 7) : 1;
     c.save(); c.translate(CX, CY); c.scale(k, k);
@@ -380,8 +388,8 @@ const NABE = (() => {   // v055: no ring any more — a silhouette of its own (e
   }
   const aktivNabe = () => KOMPASS.sichtbar() && api('strand').ressB().stamp;
   function tick() {
-    const an = aktivNabe();
-    document.body.classList.toggle('fiUI', !!an); document.body.classList.toggle('nabeAn', !!an);
+    const an = aktivNabe(), moeglich = !!api('strand').ressB().stamp;
+    document.body.classList.toggle('fiUI', moeglich); document.body.classList.toggle('nabeAn', !!an);   // v063: the old buttons never come back while a screen covers the hub
     el.style.display = an ? 'block' : 'none'; if (!an) return;
     const f = daten(), a = api('strand').ausdauer(), led = W.strand.$('ledgerBtn').classList.contains('ready'), t = performance.now() / 1000;
     info.title = (f.insel ? 'Wandel ' + f.wandel + '/' + f.wMax + ' · ' + f.freiAlle + ' free' + (f.banyan ? ' to teach the banyan' : '') + ' · ' + f.stufeName + (f.naechste ? ' · at ' + f.naechste + ': ' + f.naechsteName : '') + ' · sight ' + f.sicht + '\n' : '') + 'Stamina ' + a.n + '/' + a.max + (f.insel ? ' · Befall ' + f.befall : '');
@@ -571,7 +579,7 @@ function surfRegeln(sel) {
       text: '<p>Every low tide gives you a number of <b>tides</b> (the cyan waves round the End-ebb compass, bottom right). Each action on the beach costs one: a coconut, a sip from the pool, a crab, a visit to the palm forest. You won\'t manage everything — <b>choose</b>.</p><p>When they are spent, nothing happens until you tap <b>Wait for the tide ⏭</b> (later: <b>End ebb</b>). You start with <b>3</b>; finding out more about the island earns more — the stamp, the palm forest, Crusoe\'s first note, his bark map, and the island itself: up to <b>8</b>.</p>' },
     { id: 'tower', title: 'The beach tower', at: 1, only: !!st.tower, ill: '',   // v062: only once the tower stands
 
-      text: '<p>The right wheel on the End-ebb compass: <b>tap once — Silver</b>: at the start of every ebb the tower does the beach chores — catching crabs, drinking coconuts, rum for the tortoise — and pays for each with one of your beach tides (never a spring tide). <b>Tap again — Gold</b> (Tower II): it also rides the stage for you — up to two stages past the last one you rode yourself — at about 70 % of your usual haul. <b>Tap again — off.</b> Bosses are always yours.</p>' },
+      text: '<p>The right wheel on the End-ebb compass: <b>tap once — Silver</b>: at the start of every ebb the tower does the beach chores — catching crabs, drinking coconuts, rum for the tortoise — and pays for each with one of your beach tides (never a spring tide). <b>Tap again — Gold</b> (Tower II): it also rides the stage for you — up to two stages past the last one you rode yourself — at about 70 % of your usual haul — but it can lose: the odds come from your upgrades against the stage, and your stamina. <b>Tap again — off.</b> Bosses are always yours.</p>' },
   ];
   const ok = c => st.flood >= c.at && c.only !== false;
   const tabs = C.filter(c => c.only !== false).map(c => ({ id: c.id, title: (ok(c) ? c.title : '? ? ?'), on: ok(c), sel: false }));
@@ -586,7 +594,9 @@ const FLUTBERICHT = {
     if (!this.el) { const d = document.createElement('div'); d.id = 'flutBer'; document.body.appendChild(d); d.onclick = () => d.style.display = 'none'; this.el = d; }
     const b = api('strand').bilanz(), m = this.inselBereit === false ? {} : (SPIEL.inselBereit ? api('insel').bilanz() : {}), L = [];
     if (m.island_fight) L.push('⚔ ' + m.island_fight);
-    if (b.result) L.push('🏖 ' + b.result + (b.kills ? ' · ' + b.kills + ' monsters' : ''));
+    const al = api('strand').autoLetzt ? api('strand').autoLetzt() : null;   // v063: a tower ride
+    if (al) L.push('🗼 the tower rode stage ' + al.stage + ' (' + al.p + ' %): ' + (al.win ? 'won' : 'washed off') + ' · +' + al.green + ' 💚');
+    else if (b.result) L.push('🏖 ' + b.result + (b.kills ? ' · ' + b.kills + ' monsters' : ''));
     if (m.strikes) L.push('🟣 rot: ' + m.strikes);
     if (m.rot_tiles !== undefined && m.rot_tiles !== '') L.push('rot tiles ' + m.rot_tiles + (m.nests !== undefined ? ' · nests ' + m.nests : ''));
     if (b.tower) L.push(b.tower);   // v061: what the tower did at the start of this ebb
@@ -1111,7 +1121,7 @@ export const UNLOCKS = [
   { id: 'rootOrder', cost: 3, name: 'Root order', desc: 'Tap any rooted tile: the banyan strengthens that root next. — It listens. Mostly.' },
   { id: 'coarse', cost: 4, name: 'Coarse priority', desc: 'Send all sap into growth (more levels, more tiles worked) or all into production (roots, orders). — All or nothing, like a quarterly report.' },
   { id: 'tower', cost: 6, name: 'Beach tower', desc: 'A thorn tower on Crab Beach: 30 💚, then 24 production sap. It does your beach chores at the start of each ebb with your unused beach tides — crabs, coconuts, rum for the tortoise (compass wheel: Silver). — The beach, delegated.' },
-  { id: 'tower2', cost: 10, name: 'Tower II', desc: 'A second ring: 30 💚, then 24 production sap. The tower also rides beach stages for you — up to two past your own last ride — for about 70 % of your haul (compass wheel: Gold). — The beach fights for itself.' },
+  { id: 'tower2', cost: 10, name: 'Tower II', desc: 'A second ring: 30 💚, then 24 production sap. The tower also rides beach stages for you — up to two past your own last ride — for about 70 % of your haul (it can lose — upgrades raise the odds) (compass wheel: Gold). — The beach fights for itself.' },
   { id: 'fine', cost: 8, name: 'Fine priority', desc: 'Split the sap in quarter steps: 0 / 25 / 50 / 75 / 100 % growth. — You really are an accountant.' },
   { id: 'cleanRot', cost: 8, name: 'Clean rot', desc: 'The banyan scrubs rot before the flood strikes: 6 production sap per −1 rot, up to 4 per flood — on tree tiles and tiles with root 3. Never nests. — A tree with a broom.' },
   { id: 'cleanRot2', cost: 10, name: 'Clean rot II', desc: 'The banyan also scrubs tiles with root 2. — Lower standards, cleaner island.' },
@@ -1129,7 +1139,7 @@ export const RULECARDS = [
   { id: 'spring', title: 'Spring tide', ill: 'spring', text: '<b>+1 ✨ every tide, for good</b> — earned by real deeds: the banyan, roots around it, a nest burned, the gecko, the beach tower, an offshoot, an offensive survived. Shared with the beach, always spent last.<br><br><i>The golden kind. You can\'t harvest it. You have to earn it.</i>' },
   { id: 'rot', title: 'Rot & arms', ill: 'rot', text: '<b>Rot 1–3.</b> Rot tiles give no sap and no harvest; from rot 2 nothing can be planted. Rot spreads only next to rot: the strongest rot neighbour is the main arm, every other one adds +1.<br><br>On the map the rot builds: <b>rot 1</b> surveyors, <b>rot 2</b> sheds and a foundation, <b>rot 3 a trebuchet</b>.<br><br><i>The yacht leaks into everything — and it brings its own engineers.</i>' },
   { id: 'nests', title: 'Nests & merge', ill: 'nests', text: 'A <b>nest</b> can\'t be struck. Every flood it feeds <b>+1 rot</b> to the weakest tiles it owns. When two rot networks touch they <b>merge</b>: each nest also feeds a third of the other\'s tiles. New nests only come with the story.<br><br><i>Synergies — theirs, not ours.</i>' },
-  { id: 'omen', title: 'Bad Omen', ill: 'omen', text: '<b>Bad Omen:</b> each flood the rot picks one kind of land (top centre); every network sends one spearhead (black tendril) into the nearest tile of that kind — even under the clouds.<br><br><b>Trebuchet:</b> a rot-3 tile fires at its own root first, −1 every flood. Once the root is gone it fires at the neighbour nearest the banyan, next flood: the ball always lands — a root there loses a step; only a tile without a root gets +1 rot. Cleanse the trebuchet below 3 and it falls apart.' },
+  { id: 'omen', title: 'Bad Omen', ill: 'omen', text: '<b>Bad Omen:</b> each flood the rot picks one kind of land (top centre); every network sends one spearhead (black tendril) into the nearest tile of that kind — even under the clouds. Every ten tides the Board lands supplies: one more spearhead per network.<br><br><b>Trebuchet:</b> a rot-3 tile fires at its own root first, −1 every flood. Without a root, at the front it builds a trebuchet: it <b>loads one flood and fires the next</b>, at the neighbour nearest the banyan. Behind the front the rot builds a <b>tower</b> (3 floods) with a trebuchet on top: <b>range 2</b>. The ball always lands — a root there loses a step; a withered root stays withered for a flood, and a tile without a root gets +1 rot. Nothing is built on the steep flanks of Fire Mountain. Cleanse below 3 and it falls apart.' },
   { id: 'defence', title: 'Defence', ill: 'defence', text: '<b>Defence = root strength + healthy rooted neighbours (max 2) + protected + a friend + you</b>, standing there. Odds that the tile holds: even 50 %, one ahead 80 %, two 92 %, three+ 99 %.<br><br>If it falls: +1 rot and its root −1. A root at 0 <b>withers</b> — it grows back by itself once the tile is clean, if a rooted tile is next door. New roots start at strength 2. Defence two above the attack pushes the rot back.<br><br><i>Hold a line, not a dot.</i>' },
   { id: 'sap', title: 'Sap', ill: 'sap', text: 'The banyan works as many <b>healthy rooted tiles</b> as its level: banyan 3 sap · grove & jungle 2 · beach & slope 1 · food +1. The sap splits into <b style="color:#3f8a33">growth</b> (levels) and <b style="color:#8a5a2a">production</b> (roots, towers, offshoots, cleaning).<br><br><b>Harvest:</b> every healthy rooted food tile brings in +1 🍞 or 🥥 per flood, +1 more if protected. Robinson doesn\'t pick — the roots do.<br><br><b>Rot 3 on a tree</b> burns levels to push the rot back (and the fire hits nests within two steps). At level 1 the old banyan dies — and the island with it.' },
   { id: 'boss', title: 'The First Mate', ill: 'boss', text: 'Bosses don\'t die, darling. They get <b>demoted</b>. Beat one on the beach and he crawls back into one of <b>his nests</b> — the ink-dark ones — and sulks for <b>three tides</b>. Then he walks in with a normal wave: thinner, smaller, still both attacks.<br><br>Scrub the nest he sits in and he has to move: one day of sulking lost. Scrub his <b>last</b> nest and he is gone for good. No fight needed. Your briefcase reads his mail; listen to it.' },

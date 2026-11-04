@@ -261,9 +261,9 @@ function planFlood(keepOmen) {
 // the briefcase warns when two rot networks are one tile apart, and again when they merge
 function mergeWatch() {
   const { comp, nets } = networks();
-  if (nets.some(n => n.nests.length > 1 && n.nests.some(id => T[id].state > 0))) { prio('briefcase', 'Merger completed', 'Two nests, one network. Each keeps its own strength and takes a third of the other\'s on top.\nSynergies — theirs, not ours.', { must: true, key: 'merged' }); return; }
+  if (nets.some(n => n.nests.length > 1 && n.nests.some(id => T[id].state > 0))) { prio('briefcase', 'Merger completed', 'Two nests, one network. Each keeps its own strength and takes a third of the other\'s on top.\nSynergies — theirs, not ours.', { must: true, key: 'merged', ill: 'merge' }); return; }
   const mt = mergeTiles({ comp, nets }).find(id => T[id].state > 0 && G.targets.includes(id));
-  if (mt !== undefined) { prio('briefcase', 'Audit note: merger risk', 'The rot strikes a tile between two networks this flood — the red one on your map. One hit is enough: if it rots, the networks touch, and each nest feeds a third of the other\'s tiles on top.\nCompound interest. The bad kind. Hold that tile.', { must: true, key: 'mergeWarn', ping: mt, urgent: true, valid: (t0 => () => G.tide === t0)(G.tide) }); }
+  if (mt !== undefined) { prio('briefcase', 'Audit note: merger risk', 'The rot strikes a tile between two networks this flood — the red one on your map. One hit is enough: if it rots, the networks touch, and each nest feeds a third of the other\'s tiles on top.\nCompound interest. The bad kind. Hold that tile.', { must: true, key: 'mergeWarn', ping: mt, urgent: true, valid: (t0 => () => G.tide === t0)(G.tide), ill: 'merge' }); }
 }
 // flood step: every nest strengthens its own share, one +1 per power point
 function nestPhase() {
@@ -314,7 +314,7 @@ function rootPick() {
 // v061: the trebuchet shot — the ball always lands: a root loses a step first; only a tile without root gets +1 rot
 async function treboSchuss(from, id) {
   const t = T[id], [x, y] = tileXY(id); G.shot = { from, to: id, t0: G.now }; await sleep(900); G.shot = null;
-  prio('tortoise', 'The trebuchet fires', 'A rot-3 tile whose root is gone builds a trebuchet and fires at the next tile.\nThe ball always lands: a root there loses one step; only a tile without a root gets +1 rot.\nCleanse the trebuchet tile below three and it falls apart.', { key: 'trebuchet', ill: 'overflow', urgent: true });
+  prio('tortoise', 'The trebuchet fires', 'A rot-3 tile whose root is gone builds a trebuchet. It loads one flood and fires the next — at the tile nearest the banyan. Behind the front the rot builds towers first: those shoot two tiles far.\nThe ball always lands: a root there loses one step; only a tile without a root gets +1 rot.\nCleanse the trebuchet tile below three and it falls apart.', { key: 'trebuchet', ill: 'overflow', urgent: true });
   if (t.rooted && !(G.banyans.includes(id) && t.rs <= 1)) { t.rs--; rootFx(id, t.rs + 1, t.rs); if (t.rs <= 0) welken(t, x, y); else addFloat(x, y - 16, '💥 root −1', '#ffb0a0'); return; }
   if (t.b === 0) t.rotBorn = G.tide; t.b = Math.min(id === G.banyan && !tutFertig() ? 2 : 3, t.b + 1); addFloat(x, y, '💥 +1 rot', '#ff9a8a'); G.es.spill = (G.es.spill || 0) + 1;
   if (t.b >= 2 && friendOn(id) && id !== G.banyan) { G.friends.gecko = false; G.springMax--; G.springSrc = G.springSrc.filter(z => z !== 'gecko'); addFloat(x, y - 30, 'the gecko flees', '#ffb0a0'); }
@@ -372,7 +372,7 @@ function sapPhase() {
     say('tortoise', 'A tower! For me? Well — for the beach. I approve. Switch it on when you like; it only uses the beach tides you would have wasted.');
   } else if (G.order === 'tower2' && G.sapProd >= RULES.towerSap && G.tower) {   // v043
     G.sapProd -= RULES.towerSap; G.tower2 = true; G.order = 'roots'; addFloat(...tileXY(G.start), 'tower II!', '#ffe08a');
-    showCard('Tower II', 'A second ring of thorns climbs the beach tower. <b>The beach fights for itself now:</b> the tower rides a stage for you — up to two stages past the last one you rode yourself — at about 70 % of what you usually bring home. Bosses stay yours. Tap the right wheel on top of the compass twice (Gold).');
+    showCard('Tower II', 'A second ring of thorns climbs the beach tower. <b>The beach fights for itself now:</b> the tower rides a stage for you — up to two stages past the last one you rode yourself — at about 70 % of what you usually bring home — it can lose, and your upgrades decide the odds. Bosses stay yours. Tap the right wheel on top of the compass twice (Gold).');
   } else if (G.order === 'ableger' && G.sapProd >= RULES.ablegerSap && G.blevel >= 2) {
     G.sapProd -= RULES.ablegerSap; G.cutting = true; G.order = 'roots'; G.blevel = Math.max(1, G.blevel - 1);
     prio('tortoise', 'A cutting', 'You\'re carrying a piece of the banyan now. Don\'t sit on it.\nTake it up to the cliffs — Region II — to a free tile next to your roots, and plant it: 1 tide. It becomes a banyan of its own, level 1, and its sap joins the first.', { must: true, urgent: true, key: 'cuttingQuest', ill: 'cutting', valid: () => !!G.cutting });
@@ -492,9 +492,9 @@ function actInner(kind, id) {
     const cost = moveCost(G.at, id); if (!spend(cost)) return;
     G.at = id; G.moves++; if (t.b > 0) addInf(t.b); const [x, y] = tileXY(id); Object.assign(G.group, { fx: G.group.x, fy: G.group.y, tx: x, ty: y, t: 0 });
     const firstVisit = t.state < 2; setKnown(t);
-    if (id === G.gate && G.key && !G.flags.gatePrio && G.descent === 0) { G.flags.gatePrio = true; prio('tortoise', 'The gate', CAVE_TEXT.entrance.gate_prio, { must: true, ping: G.cave }); }
+    if (id === G.gate && G.key && !G.flags.gatePrio && G.descent === 0) { G.flags.gatePrio = true; prio('tortoise', 'The gate', CAVE_TEXT.entrance.gate_prio, { must: true, ping: G.cave, ill: 'gate' }); }
     if (t.content && t.content.kind === 'radio' && !G.flags.radio) { G.flags.radio = true; G.board.nextOffer = Math.max(G.board.nextOffer || 0, G.tide + 1); addIntel(1);
-      showCard('A washed-up radio', 'Wedged between two rocks: a ship\'s radio in a waterproof case, still blinking. A sticker on the side: <i>PROPERTY OF THE BOARD — RETURN TO MY LEVERAGE</i>.<br><br>It crackles. Someone on the other end has been waiting for you to pick up.');
+      prio('tortoise', 'A washed-up radio', 'Wedged between two rocks: a ship\'s radio in a waterproof case, still blinking. A sticker on the side: PROPERTY OF THE BOARD — RETURN TO MY LEVERAGE.\n\nIt crackles. Someone on the other end has been waiting for you to pick up.', { must: true, urgent: true, ill: 'radio' });   // v063: a window with a picture
       say1('radio', 'briefcase', 'That is their line. They will call. They always call. Don\'t sign anything I haven\'t read.', true); }
     if (firstVisit && t.content && t.content.kind === 'memory' && !G.memories.includes('invoice')) { G.memories.push('invoice'); addIntel(1); setTimeout(() => { showCard('A memory', 'A sodden receipt in the flotsam. <i>“Invoice: one (1) island, paid in full.”</i> Your handwriting.'); say1('memory', 'briefcase', 'I remember that invoice. I was there. I was the one holding it.'); }, 700); }
     if (t.content && t.content.kind === 'banyan' && !G.friends.banyan && tutFertig()) prio('tortoise', 'The banyan', 'Here it is. The banyan. Older than both of us, and lonelier.\nHow to befriend it: listen to it — right here, 2 free Wandel. I\'ll translate.\nThen it grows roots, drinks sap, and everything else on this island grows from that. This is the most important tree you will ever meet.', { must: true, key: 'banyanVisit', ping: id, ill: 'banyan', btn: 'I\'ll stay' });
@@ -886,6 +886,7 @@ function mapLoad(st) {
   FOG.scout.x.setTransform(1, 0, 0, 1, 0, 0); FOG.scout.x.clearRect(0, 0, FOG.scout.c.width, FOG.scout.c.height);   // fog starts clean, then what was known is revealed
   T.forEach(t => { if (t.state > 0) t.samp.forEach(([x, y], i) => { if (i % 2 === 0) revealAt(x, y, 22); }); });
   if (!('tut' in M.G)) G.tut = 'done';   // v061: older saves are past the tutorial
+  if (!G.fi) { delete G.fiWipe; delete G.fiAt; }   // v063 (Jan): no wipe for now — an old save's wipe memo is withdrawn, the briefcase stays
   freundReparatur();   // v060
   if (!G.wandelMax || G.wandelMax < WMAX) G.wandelMax = WMAX + Math.max(0, (G.wandelMax || 20) - 20);   // v061: the longer Wandel bar
   G.banyans.forEach(id => { if ((id !== G.banyan || G.friends.banyan) && !T[id].rooted) { T[id].rooted = true; T[id].rs = 1; } });   // v024: trees keep root 1, also in old saves
@@ -1232,15 +1233,15 @@ async function endEbb() {
   const nh = nestPhase(); if (nh) { banner('The nests feed'); await sleep(1300); }
   { const bb = T[G.banyan].b; if (G.friends.banyan) {   // the banyan's own rot: two warning steps before it falls
     const burnTxt = G.blevel >= 2 ? 'At rot 3 it burns ' + (G.blevel >= 3 ? 'two levels' : 'one level') + ' to push the rot back.' : 'At rot 3 it dies — and the island with it.';
-    if (bb === 1 && !G.bWarn1) { G.bWarn1 = true; if (rep('bWarn1') === 1) prio('tortoise', 'Rot on the banyan', 'The rot touched the banyan itself.\nCleanse it now, then roots and protection on the tiles around it.', { must: true, urgent: true, ping: G.banyan }); else say('tortoise', 'Rot 1 on the banyan. Cleanse it.'); }
-    if (bb >= 2 && !G.bWarn2) { G.bWarn2 = true; if (rep('bWarn2') === 1) prio('tortoise', 'One more and it burns', 'One more and the banyan burns its own rings.\nDrop everything: cleanse it, and stand on it at flood.', { must: true, urgent: true, ping: G.banyan }); else say('tortoise', 'Rot 2 on the banyan. ' + burnTxt); }
+    if (bb === 1 && !G.bWarn1) { G.bWarn1 = true; if (rep('bWarn1') === 1) prio('tortoise', 'Rot on the banyan', 'The rot touched the banyan itself.\nCleanse it now, then roots and protection on the tiles around it.', { must: true, urgent: true, ping: G.banyan, ill: 'banyanDanger' }); else say('tortoise', 'Rot 1 on the banyan. Cleanse it.'); }
+    if (bb >= 2 && !G.bWarn2) { G.bWarn2 = true; if (rep('bWarn2') === 1) prio('tortoise', 'One more and it burns', 'One more and the banyan burns its own rings.\nDrop everything: cleanse it, and stand on it at flood.', { must: true, urgent: true, ping: G.banyan, ill: 'banyanDanger' }); else say('tortoise', 'Rot 2 on the banyan. ' + burnTxt); }
     if (bb === 0) { G.bWarn1 = false; G.bWarn2 = false; } } }
   for (const id of G.banyans.slice()) if (T[id].b >= 3) await treeBurn(id);   // fed up to rot 3
   nestGrowth();
   if (G.over) { await inselVerloren(); return; }
   if (G.friends.banyan) { const sp = sapPhase(); if (sp) { banner('The banyan drinks · +' + (Math.round(sp * 10) / 10) + ' sap'); await sleep(1300); } }
   rotEatsRoots();
-  if (!G.friends.banyan && T[G.banyan].b >= 1 && !G.bWarnF) { G.bWarnF = true; prio('tortoise', 'The banyan is rotting', 'The rot has reached the banyan — and it doesn\'t know you yet.\nGo to it and listen to it (2 free Wandel): the friendship cleans it. At rot 3 it is gone, and the island with it.', { must: true, urgent: true, ping: G.banyan }); }
+  if (!G.friends.banyan && T[G.banyan].b >= 1 && !G.bWarnF) { G.bWarnF = true; prio('tortoise', 'The banyan is rotting', 'The rot has reached the banyan — and it doesn\'t know you yet.\nGo to it and listen to it (2 free Wandel): the friendship cleans it. At rot 3 it is gone, and the island with it.', { must: true, urgent: true, ping: G.banyan, ill: 'banyanDanger' }); }
   if (T[G.banyan].b >= 3 && (G.friends.banyan ? G.blevel <= 1 : true)) { G.over = true; say('tortoise', 'Well. That was the banyan.'); await inselVerloren(); return; }
   T.forEach(t => { if (t.exh > 0) t.exh--; });
   { const h = ernte(); Object.keys(h).forEach(k => { if (h[k]) gainRes(k, h[k]); }); if (h.fruit || h.coco) { banner('The roots harvest · ' + (h.fruit ? '+' + h.fruit + ' 🍞 ' : '') + (h.coco ? '+' + h.coco + ' 🥥' : '')); await sleep(1000); } }   // v061: roots harvest, Robinson doesn't
@@ -1255,6 +1256,7 @@ async function endEbb() {
 }
 function nextEbb() {
   { const held = PRIO.q.filter(m => !m.urgent).length; if (held) { G.stau = (G.stau || 0) + 1; G.stauLast = held; } G.prioShown = 0; }   // v061: log the backlog
+  document.querySelectorAll('#insel #chatT .ln.neu').forEach(l => l.classList.remove('neu'));   // v063: a new ebb — last ebb's lines become history
   G.tide++; G.gezeit = RULES.baseTide; G.spring = G.springMax; G.phase = 'ebb'; unlockRule('spring'); G.below = false;
   if (G.collapse) { G.collapse = false; G.collapses++; G.gezeit = 0; G.spring = 0; G.at = G.friends.banyan ? G.banyan : G.start; const [x, y] = tileXY(G.at); Object.assign(G.group, { x, y, tx: x, ty: y, t: 1 }); G.inf = Math.max(0, G.inf - 3);
     if (G.collapses > 1) setTimeout(() => toast('You wake up · this ebb is lost' + (G.inf >= 7 ? ' · Befall ' + G.inf + ': stand on clean, protected tiles to shake it off' : '')), 300); else setTimeout(() => showCard('You wake up', 'Under the banyan, covered in leaves. ' + (G.catFate === 'gone' ? 'The gecko sits on your shoe, very pleased with itself. It dragged you back. Somehow.' : 'The cat is asleep on your chest; the gecko sits on your shoe, very pleased with itself. They dragged you back.') + '<br><br><b>This ebb is lost</b> — you can barely stand.'), 300); }
@@ -1327,7 +1329,7 @@ function bossNestGone(id) {
 }
 function bossTerminate() {
   const B = G.boss, was = bossName(); B.alive = false; B.ready = false; B.fight = false; B.at = -1;
-  prio('briefcase', 'TERMINATION LETTER', 'To: ' + was + '.\nYour position has been eliminated. Your access has been revoked. Please return the lifebuoy.\ncc: Accounts.\n\n…cc: Accounts. That\'s us. That was always us. I may have been on the wrong distribution list all along.', { must: true, btn: 'File it' });
+  prio('briefcase', 'TERMINATION LETTER', 'To: ' + was + '.\nYour position has been eliminated. Your access has been revoked. Please return the lifebuoy.\ncc: Accounts.\n\n…cc: Accounts. That\'s us. That was always us. I may have been on the wrong distribution list all along.', { must: true, btn: 'File it', ill: 'fired' });
   addIntel(2); G.board.pendingDir = G.tide + (G.phase === 'ebb' ? 1 : 2); setTimeout(spawnNachBoss, 2500);   // v061: two new nests after his last den   // v016: the Board takes a tide to decide — no directive in the same ebb as the victory
   // v020: no key from him any more — Act 3 is only reachable through the secret shortcut (long press on the tide bar → the cat)
   if (false) prio('tortoise', 'A key', 'In what\'s left of him: an old brass key on a lanyard. The tag says "Gate C — service tunnel".\nThere\'s a rusted gate up on the cliff-top, darling, right where the bats come out. Under the mountain.\nI won\'t come with you. Nobody goes down there with you.', { must: true, ping: G.gate });
@@ -1616,7 +1618,7 @@ async function finaleRun(cutTxt, sumTxt) {
     (G.offLost ? 'The banyan lost ' + G.offLost + ' level' + (G.offLost > 1 ? 's' : '') + ' to the armies — and it is still here. ' : 'Three armies and a crab the size of a boat, and the banyan didn\'t lose a single ring. ') +
     'It answers the only way it knows: roots shoot out over every tile you hold, and the rot all over the island falls back two steps' + (n ? ' (' + n + ' tile' + (n > 1 ? 's' : '') + ')' : '') + '.<br><br>' +
     'That night there are fireflies under the banyan. The cat sleeps on your chest, the gecko on your shoe. The tortoise has found the rum. <i>“To the worst accountant this island has ever had,”</i> she says. <i>“And the only one still standing.”</i>', G.offLost ? 'Still here' : 'Cheers');
-  prio('briefcase', 'MEMO · Restructuring: failed', 'From: The Board. To: all departments.\nRestructuring has been discontinued.' + cutTxt + '\n\n…Failed. First time in the Board\'s history. I am framing this memo.\nThey spent more than they had: ' + sumTxt + '.', { must: true, btn: 'Frame it' });
+  prio('briefcase', 'MEMO · Restructuring: failed', 'From: The Board. To: all departments.\nRestructuring has been discontinued.' + cutTxt + '\n\n…Failed. First time in the Board\'s history. I am framing this memo.\nThey spent more than they had: ' + sumTxt + '.', { must: true, btn: 'Frame it', ill: 'memo' });
   await waitCalm(); await sleep(1600);
   await ferrantCall();
   prio('briefcase', 'Who that was', 'That was Aurelius Ferrant. Ferrant Capital, Zürich. The man who owns the Board, the yacht, the paper on this island.\nAnd, he seems to think, you.\nHe has never called anyone himself. Not once, in all the mail I have read.', { must: true, btn: '…' });
@@ -1793,7 +1795,7 @@ function boardDirective(kind) {
   const O = OFFENSIVES[kind], B = G.board; if (!O || (B.off && !B.off.done)) return;
   G.offN = (G.offN || 0) + 1; const nm = O.name + (G.offN > 1 ? ' ' + ['', '', 'II', 'III', 'IV', 'V'][Math.min(5, G.offN)] : '');
   B.off = { kind, name: nm, start: G.tide + 2, end: G.tide + 5, done: false, n: G.offN }; addIntel(1);
-  prio('briefcase', 'BOARD DIRECTIVE · ' + O.name, 'From: The Board. To: all departments.\nEffective tide ' + B.off.start + ', for three tides: ' + O.fx + '.\n\n…They\'re answering his firing with an offensive. You have one full ebb to prepare: roots, protection, stand where it matters. After that it ends — and they\'ll be weaker than before.', { must: true });
+  prio('briefcase', 'BOARD DIRECTIVE · ' + O.name, 'From: The Board. To: all departments.\nEffective tide ' + B.off.start + ', for three tides: ' + O.fx + '.\n\n…They\'re answering his firing with an offensive. You have one full ebb to prepare: roots, protection, stand where it matters. After that it ends — and they\'ll be weaker than before.', { must: true, ill: 'memo' });
 }
 function offDone(o) {   // v021: an offensive ends — at its last tide, or when its last army falls
   if (!o || o.done) return;
@@ -1805,7 +1807,7 @@ function offDone(o) {   // v021: an offensive ends — at its last tide, or when
     const sumTxt = Object.keys(O.after).map(k => BOARD_K[k] + ' −' + O.after[k]).join(', ');
     G.offCut = cutTxt; G.offSum = sumTxt;
     if ((o.n || 1) === 1) say('briefcase', 'Memo: the rot surge of ' + o.name + ' is over.' + (G.armies.some(a => !a.dead) ? ' The armies are not — their orders don\'t expire.' : ''));   // v022: the finale comes with the last army
-    else prio('briefcase', 'MEMO · Directive completed', o.name + ' is over. Budget review pending.' + cutTxt + '\n\nThey spent more than they had. ' + sumTxt + ' — if my sums are right. Check the Intercepted Memos.', { must: true });
+    else prio('briefcase', 'MEMO · Directive completed', o.name + ' is over. Budget review pending.' + cutTxt + '\n\nThey spent more than they had. ' + sumTxt + ' — if my sums are right. Check the Intercepted Memos.', { must: true, ill: 'memo' });
   }
 function boardTick() {   // at the start of every ebb
   const B = G.board;
@@ -1820,17 +1822,33 @@ function boardTick() {   // at the start of every ebb
   if (G.caseFound && tutFertig() && G.flags.radio && G.tide >= B.nextOffer && !offActive() && !(o && o.end === G.tide)) setTimeout(bribeTry, 2600);
   if (G.bribeRemind === G.tide) { G.bribeRemind = 0; setTimeout(() => say('tortoise', G.caseFound && !G.fi && G.fiWipe !== undefined ? 'About that offer from the Board, darling. The briefcase is scared of them — and of the wipe. Your Dream has a lesson at the very tip: the Dark-Wood Elf. Think about it.' : 'About that offer from the Board. They never give anything away. Count what it cost you.'), 3200); }
 }
+// v063: the radio answers — smug when you take the money, threatening when you don't (also against the briefcase, Board property);
+// after the first refusal the briefcase explains who is really on that line. No wipe: the briefcase stays a briefcase.
+const FUNK = {
+  ja: ['+++ Transfer confirmed. +++\nHow refreshing: a man who knows the value of things. Your little island report is already in the minutes.\nWe will be in touch. We always are.',
+       '+++ Transfer confirmed. +++\nTwice now, Mr. Robinson. Our analysts have opened a file with your name on it. It is a very thick file for such a small island.\nDo enjoy the quiet. You paid for it.',
+       '+++ Transfer confirmed. +++\nYou are becoming one of our better suppliers. Accounts Payable sends its regards. So does the Chairman — and he rarely sends anything.'],
+  nein: ['+++ Offer withdrawn. +++\nNoted. We note everything.\nAn island is a fragile asset, Mr. Robinson. Storms. Rot. Faulty equipment — that briefcase of yours, for instance, is still company property. Property can be recalled.\nThink it over. We will ask again.',
+         '+++ Offer withdrawn · second notice. +++\nYou keep confusing integrity with leverage. Integrity is what a man has when he has nothing else.\nOur property in your possession has been flagged for review. Do give it our regards while it still answers.',
+         '+++ Final notice. +++\nThere is no third way, Mr. Robinson. There is our way, and there is the sea. The sea, we are told, is patient. We are not.']
+};
+function funkAntwort(ja, n) {
+  const L = ja ? FUNK.ja : FUNK.nein, txt = L[Math.min(L.length, n) - 1];
+  setTimeout(() => prio('radio', ja ? 'Reply · payment received' : 'Reply · offer declined', txt, { must: true, urgent: true, ill: 'radio' }), 900);
+  if (!ja && n === 1 && G.caseFound) setTimeout(() => prio('briefcase', 'Who is on the radio', 'That wasn\'t the Board, darling. Well — not the Board you think. The Board signs things. The voice on the radio is the man who tells the Board what to sign: a "handler", the memos call him. He never uses a name.\nHow it works: the Board owns the paper. The paper owns the yacht, the island survey — and me. Whoever holds that radio holds the Board\'s attention.\nThey can\'t reach you out here. They can reach me: I am still on their asset list. Remote audit, remote recall, remote whatever-they-call-it.\nDon\'t worry. I have decided to be very badly maintained.', { must: true, urgent: true, key: 'funkMacht', ill: 'memo' }), 1800);
+}
 function bribeTry() {
   const B = G.board; if (G.phase !== 'ebb' || G.over || G.tide < B.nextOffer) return;
   if (B.offerHeld === G.tide || PRIO.open || PRIO.q.length || (G.prioShown || 0) > 0) { B.nextOffer = G.tide + 1; return; }   // a more important message this ebb — next ebb
   B.offers++; const k = B.offers, tier = Math.min(4, k); B.nextOffer = G.tide + 5 + 3 * k;   // gaps 8, 11, 14 …
   const of = bribeOffer(tier, k);
-  prio('briefcase', 'A PRIVATE OFFER' + (tier > 1 ? ' · ' + ['', '', 'SECOND', 'THIRD', 'FINAL'][tier] + ' TIER' : ''), 'From: The Board. Strictly confidential.\n' + of.pitch + '\n\nOn offer: ' + of.what + '.\nPrice: ' + of.price + ' Wandel' + (of.risk ? '. Risk: ' + Math.round(of.risk * 100) + ' % that ' + of.riskTxt : '') + '.\n\n…' + of.aside,
-    { must: true, urgent: true, choices: [['Accept · −' + of.price + ' Wandel' + (of.risk ? ' · ' + Math.round(of.risk * 100) + ' % risk' : ''), () => {
+  prio('radio', 'A PRIVATE OFFER' + (tier > 1 ? ' · ' + ['', '', 'SECOND', 'THIRD', 'FINAL'][tier] + ' TIER' : ''), 'From: The Board. Strictly confidential.\n' + of.pitch + '\n\nOn offer: ' + of.what + '.\nPrice: ' + of.price + ' Wandel' + (of.risk ? '. Risk: ' + Math.round(of.risk * 100) + ' % that ' + of.riskTxt : '') + '.\n\n…' + of.aside,
+    { must: true, urgent: true, ill: 'radio', choices: [['Accept · −' + of.price + ' Wandel' + (of.risk ? ' · ' + Math.round(of.risk * 100) + ' % risk' : ''), () => {
         addWandel(-of.price); B.pause = G.tide + 5; B.taken = (B.taken || 0) + 1; of.give(); G.bribeRemind = G.tide + 1;
         if (of.risk && Math.random() < of.risk) { of.bite(); say('briefcase', 'It leaked. ' + of.bitTxt); } else say('briefcase', k === 1 ? 'Wire received. Nobody needs to know. I\'ll know.' : 'Booked. Off the books.');
+        funkAntwort(true, B.taken);
         planFlood(true); updateHUD(); renderPanel(); }],
-      ['Decline', () => { B.declined = (B.declined || 0) + 1; addIntel(1); G.bribeRemind = G.tide + 1; if (B.declined >= 2) { G.wFree += 1; toast('Declined · +1 free Wandel'); } say('briefcase', B.declined >= 2 ? 'Declined again. They\'ll remember. So will the island.' : 'Declined. Filed under "integrity". Thin folder.'); updateHUD(); }]] });
+      ['Decline', () => { B.declined = (B.declined || 0) + 1; addIntel(1); G.bribeRemind = G.tide + 1; funkAntwort(false, B.declined); if (B.declined >= 2) { G.wFree += 1; toast('Declined · +1 free Wandel'); } say('briefcase', B.declined >= 2 ? 'Declined again. They\'ll remember. So will the island.' : 'Declined. Filed under "integrity". Thin folder.'); updateHUD(); }]] });
 }
 // v058: the comeback — once a game, when the banyan is about to go, the Board makes a generous offer. The hook: it takes everything you have.
 function rettungPruefen() {
@@ -1922,7 +1940,7 @@ function banyanWatch() {   // v024: only when the banyan really is a target this
   if (G.bmRevealTide !== G.tide) { G.bmRevealTide = G.tide; [...bt.nb].filter(n => T[n].b > 0 && T[n].reg !== 5).forEach(n => revealArmyTile(n)); }   // the threat shows itself
   if (G.bmArm === false) return; G.bmArm = false;
   if (bt.b + 1 < 3) say('tortoise', 'The rot reaches for the banyan this flood. Stand on it, or protect the tiles next to it.');
-  else prio('tortoise', 'The banyan is in danger', 'The rot reaches for the banyan this flood — and one more hit brings it to rot 3.\n' + (G.blevel <= 1 ? 'At level 1 it dies, and the island with it.' : 'Then it burns its own rings to push the rot back.') + '\nStand on it, or protect the tiles next to it.', { must: true, urgent: true, ping: G.banyan });
+  else prio('tortoise', 'The banyan is in danger', 'The rot reaches for the banyan this flood — and one more hit brings it to rot 3.\n' + (G.blevel <= 1 ? 'At level 1 it dies, and the island with it.' : 'Then it burns its own rings to push the rot back.') + '\nStand on it, or protect the tiles next to it.', { must: true, urgent: true, ping: G.banyan, ill: 'banyanDanger' });
 }
 const BANTER = [
   [() => true, 'Quiet ebb. I\'ve reconciled the cat. She doesn\'t balance.', 'She\'s not supposed to, dear.'],
@@ -1969,7 +1987,7 @@ function fiTips() {
   const since = G.tide - CASE_AT;
   if (G.friends.banyan && since >= 2) say1('fiOmen1', 'tortoise', FI_TXT.omen1);
   if (since >= 4 && storySeen.fiOmen1) say1('fiOmen2', 'briefcase', FI_TXT.omen2);
-  if (G.fiWipe === undefined && G.board.offers >= 1) G.fiWipe = G.tide;
+  // v063 (Jan): no wipe for now — the briefcase stays a briefcase; the radio threatens instead
   if (G.fiWipe === undefined) return;
   prio('briefcase', FI_TXT.wipeT, FI_TXT.wipe, { must: true, key: 'fiWipe' });
   if (G.friends.banyan) prio('tortoise', FI_TXT.humT, FI_TXT.hum, { must: true, key: 'fiHum' });
@@ -2051,7 +2069,7 @@ function chatHead() { const w = $('chatT').querySelector('.who'); if (w) w.textC
 function say(who, text, murmur) {
   if (G.phase === 'ebb') G.talkEbb = (G.talkEbb || 0) + 1;
   const win = $('chatT'), box = win.querySelector('.lines');
-  const ln = document.createElement('div'); ln.className = 'ln ' + (who === 'tortoise' ? 'lt' : 'lb'); ln.dataset.who = who; ln.dataset.full = text; ln.dataset.murmur = murmur ? '1' : ''; ln.textContent = ''; box.appendChild(ln);
+  const ln = document.createElement('div'); ln.className = 'ln neu ' + (who === 'tortoise' ? 'lt' : 'lb'); ln.dataset.who = who; ln.dataset.full = text; ln.dataset.murmur = murmur ? '1' : ''; ln.textContent = ''; box.appendChild(ln);
   win.style.display = 'block'; $('chatB').style.display = 'none'; chatHead();
   const lines = [...box.querySelectorAll('.ln')];
   lines.forEach((l, i) => { const age = lines.length - 1 - i; l.style.opacity = age <= 1 ? 1 : age === 2 ? .7 : age === 3 ? .5 : .35; });
@@ -2109,12 +2127,12 @@ function rep(key) { storySeen['#' + key] = (storySeen['#' + key] || 0) + 1; retu
 // must = always shown; otherwise only if the last priority message is at least 2 tides old, else it goes to the chat
 const PRIO = { q: [], open: null };
 function prio(who, title, text, o) {
-  o = o || {};
+  o = o || {}; if (who === 'radio') { who = 'briefcase'; o.radio = true; }   // v063: a radio message — the briefcase's voice, its own header
   if (o.key) { if (storySeen[o.key]) return;
     if (!o.must && !talkFree()) { if (!TQ.some(q => q.key === o.key)) TQ.push({ key: o.key, prio: true, who, title, text, o }); return; }
     storySeen[o.key] = 1; if (!o.must) G.explEbb++; }
   if (!o.must && G.tide - G.lastPrioTide < 2) { say(who, text.replace(/\n+/g, ' ')); return; }
-  G.lastPrioTide = G.tide; PRIO.q.push({ who, title, text, btn: o.btn, ping: o.ping, ping2: o.ping2, choices: o.choices, ill: o.ill, urgent: !!(o.urgent || G.inAct), valid: o.valid, t0: G.tide, keep: !!o.keep });
+  G.lastPrioTide = G.tide; PRIO.q.push({ who, title, text, btn: o.btn, ping: o.ping, ping2: o.ping2, choices: o.choices, ill: o.ill, radio: !!o.radio, urgent: !!(o.urgent || G.inAct), valid: o.valid, t0: G.tide, keep: !!o.keep });
 }
 // v062: a window that waited too long, or whose moment has passed, is not shown late — it stays readable as a pinned line in the chat
 function prioPin(m) { const ln = say(m.who, '📌 ' + m.title + ' — tap to read'); PRIO.hist = PRIO.hist || []; ln.dataset.prio = PRIO.hist.push(m) - 1; ln.classList.add('pin'); }
@@ -2131,9 +2149,9 @@ function prioBudget() {
 function showPrio() {
   const m = PRIO.q.shift(), el = $('prio'); PRIO.open = m; if (!m.urgent) G.prioShown = (G.prioShown || 0) + 1;
   if (m.who === 'board') { m.board = true; m.who = G.caseFound ? 'briefcase' : 'tortoise'; }   // v058: a memo straight from the Board (no briefcase needed)
-  el.className = m.board || m.who === 'briefcase' ? 'case' : 'tort';
-  el.querySelector('.stamp').style.display = m.board || m.who === 'briefcase' ? 'block' : 'none';
-  $('pWho').textContent = m.board ? '📨 The Board · a memo' : m.who === 'briefcase' ? (G.fi ? '🧝 Fi · intercepted' : '💼 The briefcase · intercepted') : '🐢 The tortoise';
+  el.className = m.board || m.who === 'briefcase' ? 'case' + (m.radio ? ' radio' : '') : 'tort';
+  el.querySelector('.stamp').style.display = (m.board || m.who === 'briefcase') && !m.radio ? 'block' : 'none';
+  $('pWho').textContent = m.radio ? '📻 +++ INCOMING RADIO MESSAGE · DECRYPTED +++' : m.board ? '📨 The Board · a memo' : m.who === 'briefcase' ? (G.fi ? '🧝 Fi · intercepted' : '💼 The briefcase · intercepted') : '🐢 The tortoise';
   $('pTitle').textContent = m.title; $('pText').textContent = ''; $('pBtn').textContent = m.choices ? m.choices[0][0] : m.btn || (m.who === 'briefcase' ? 'Noted' : 'Mm-hm');
   $('pBtn2').style.display = m.choices ? 'block' : 'none'; if (m.choices) $('pBtn2').textContent = m.choices[1][0];
   showIll(m.ill); el.style.display = 'flex';
@@ -2192,10 +2210,33 @@ function drawIll(c, k, t) {
     sz(120, 86, .9, () => drawBanyan(c, 120, 86, t, true, 1)); sz(70, 90, 1.6, () => drawCrusoeMini(c, 70, 90, t, false, false));
   } else if (k === 'army') { drawArmy(c, 120, 70, t, { str: 8, ph: 0, elite: true }, 2.0); }
   else if (k === 'tower') { sz(120, 92, 1.9, () => drawThornTower(c, 120, 92, t)); c.fillStyle = 'rgba(120,190,230,.7)'; c.fillRect(0, 92, 240, 8); }
-  else if (k === 'overflow') {
-    illHex(c, 62, 58, 34, '#16221a', '3', '#8dff6a'); illHex(c, 178, 58, 34, '#9bc46a', '', '');
-    drawTendril(c, 74, 52, 172, 60, t, true, 1, false, false);
-    c.font = "600 12px 'Fredoka',system-ui"; c.textAlign = 'center'; c.fillStyle = '#16221a'; c.fillText('rot 3 spills — omen or not', 120, 96);
+  else if (k === 'overflow') {   // v063: the trebuchet throws over to the next tile
+    illHex(c, 58, 62, 32, '#16221a', '', ''); illHex(c, 182, 62, 32, '#9bc46a', '', '');
+    const q = (t * .6) % 1; c.save(); c.translate(52, 66); c.strokeStyle = '#3b2814'; c.lineWidth = 3; c.beginPath(); c.moveTo(-13, 6); c.lineTo(0, -20); c.lineTo(13, 6); c.stroke();
+    c.rotate(2.64 + Math.min(1, q * 3) * 3.04); c.strokeStyle = '#5a3a1c'; c.beginPath(); c.moveTo(-12, 0); c.lineTo(22, 0); c.stroke(); c.restore();
+    if (q > .33) { const u = (q - .33) / .67, bx = 60 + (182 - 60) * u, by = 40 - Math.sin(u * Math.PI) * 34; c.fillStyle = '#9dff5a'; c.beginPath(); c.arc(bx, by, 4, 0, 7); c.fill(); }
+    c.font = "600 12px 'Fredoka',system-ui"; c.textAlign = 'center'; c.fillStyle = '#16221a'; c.fillText('load one flood · fire the next', 120, 98);
+  } else if (k === 'radio') {   // v063: the Board's radio in its waterproof case, blinking
+    c.fillStyle = '#2d3a2f'; c.fillRect(74, 40, 92, 52); c.fillStyle = '#1b231c'; c.fillRect(80, 46, 50, 40); c.fillStyle = '#c8b27a'; c.fillRect(84, 50, 42, 8);
+    c.fillStyle = 'rgba(120,255,90,' + (.4 + .5 * (Math.sin(t * 7) > 0 ? 1 : 0)) + ')'; c.beginPath(); c.arc(150, 52, 4, 0, 7); c.fill();
+    [140, 156].forEach(x => { c.fillStyle = '#4a5a4c'; c.beginPath(); c.arc(x, 74, 7, 0, 7); c.fill(); c.strokeStyle = '#222'; c.beginPath(); c.moveTo(x, 74); c.lineTo(x + 5 * Math.cos(t + x), 74 + 5 * Math.sin(t + x)); c.stroke(); });
+    c.strokeStyle = '#888'; c.lineWidth = 2; c.beginPath(); c.moveTo(160, 40); c.lineTo(178, 10); c.stroke();
+    for (let i = 0; i < 3; i++) { const r = ((t * 30 + i * 12) % 36) + 4; c.strokeStyle = 'rgba(255,224,138,' + (1 - r / 40) + ')'; c.beginPath(); c.arc(178, 10, r, Math.PI * .1, Math.PI * .9, true); c.stroke(); }
+    c.fillStyle = '#e8d8b0'; c.fillRect(84, 64, 40, 16); c.fillStyle = '#7a1c12'; c.font = "700 6px 'Fredoka',system-ui"; c.textAlign = 'center'; c.fillText('PROPERTY OF', 104, 71); c.fillText('THE BOARD', 104, 78);
+  } else if (k === 'banyanDanger') {   // v063: the rot creeps up to the banyan from both sides
+    const p = .5 + .5 * Math.sin(t * 4); c.fillStyle = 'rgba(200,40,30,' + (.12 + .18 * p) + ')'; c.beginPath(); c.ellipse(120, 70, 92, 34, 0, 0, 7); c.fill();
+    sz(120, 92, 1.3, () => drawBanyan(c, 120, 92, t, false, 1));
+    drawTendril(c, 10, 90, 92, 88, t, false, 1, false, false); drawTendril(c, 232, 92, 150, 88, t, false, 1, false, false);
+    c.font = "700 12px 'Fredoka',system-ui"; c.textAlign = 'center'; c.fillStyle = '#b0351c'; c.fillText('rot 3 on the banyan = it burns a ring', 120, 104);
+  } else if (k === 'merge') {   // v063: two rot networks, one tile apart
+    illHex(c, 50, 60, 28, '#16221a', '', ''); illHex(c, 190, 60, 28, '#16221a', '', ''); illHex(c, 120, 60, 28, Math.sin(t * 5) > 0 ? '#c0452a' : '#7a3a22', '!', '#fff');
+    c.font = "600 12px 'Fredoka',system-ui"; c.textAlign = 'center'; c.fillStyle = '#16221a'; c.fillText('if the middle rots, the networks join', 120, 100);
+  } else if (k === 'memo' || k === 'fired') {   // v063: a Board memo with its stamp
+    c.save(); c.translate(120, 58); c.rotate(-.05); c.fillStyle = '#f4ecd8'; c.fillRect(-52, -40, 104, 80); c.fillStyle = '#9a8a6a'; for (let i = 0; i < 6; i++) c.fillRect(-42, -28 + i * 10, i === 5 ? 40 : 84, 2.4);
+    c.rotate(.22); c.strokeStyle = '#b0351c'; c.lineWidth = 2.5; c.strokeRect(-36, 6, 72, 20); c.fillStyle = '#b0351c'; c.font = "700 12px 'Fredoka',system-ui"; c.textAlign = 'center'; c.fillText(k === 'fired' ? 'TERMINATED' : 'THE BOARD', 0, 21); c.restore();
+  } else if (k === 'gate') {   // v063: the rusted service gate under the mountain
+    c.fillStyle = '#2a2420'; c.beginPath(); c.arc(120, 96, 52, Math.PI, 0); c.fill(); c.strokeStyle = '#8a4a22'; c.lineWidth = 3; for (let x = 78; x <= 162; x += 12) { c.beginPath(); c.moveTo(x, 96); c.lineTo(x, 50 + Math.abs(x - 120) * .5); c.stroke(); }
+    for (let i = 0; i < 3; i++) { const bx = 120 + Math.sin(t * 2 + i * 2) * 40, by = 40 + Math.cos(t * 3 + i) * 12; c.fillStyle = '#111'; c.beginPath(); c.moveTo(bx - 7, by); c.quadraticCurveTo(bx - 3, by - 5 * Math.sin(t * 20 + i), bx, by); c.quadraticCurveTo(bx + 3, by - 5 * Math.sin(t * 20 + i), bx + 7, by); c.fill(); }
   }
 }
 function prioBtn(i) { const m = PRIO.open; if (!m) return; if (m.reopen) { $('prio').style.display = 'none'; PRIO.open = null; return; } clearTimeout(m.timer); if (!m.done) { $('pText').textContent = m.text; m.done = true; return; } $('prio').style.display = 'none'; PRIO.open = null; if (m.cam) camHome(.6); if (m.choices) m.choices[i][1](); }
@@ -2349,14 +2390,20 @@ function renderPanel() {
   // ⚔ combat
   if (t.state > 0 && t.reg !== 5) {
     if (t.id === G.banyan && G.friends.banyan && t.b > 0) combat.push('<span class="bad">🌳 Banyan rot ' + t.b + '/3 — ' + (G.blevel <= 1 ? 'at 3 the island falls.' : 'at 3 it burns ' + (G.blevel >= 3 ? 'two rings' : 'a ring') + ' to push it back.') + '</span>');
+    if (t.b >= 3 && !t.source && !t.rooted) combat.push(steil(t) ? '<small>⛰ Too steep up here: the rot builds nothing.</small>' : t.turm !== undefined && t.trebo === undefined ? '<b>🏰 Tower</b> · ' + Math.min(RULES.turmBau, G.tide - t.turm) + '/' + RULES.turmBau + ' — then a trebuchet on top, range 2' : t.trebo !== undefined ? '<b>💥 Trebuchet</b>' + (t.turm !== undefined ? ' on a tower · range 2' : ' · range 1') + ' — ' + (treboFeuert(t) ? '<span class="bad">fires this flood</span>' : 'loading, fires the flood after') : '<small>💥 A trebuchet goes up here next flood.</small>');   // v063
     if (t.b > 0) combat.push('☠ Rot <b>' + t.b + '/3</b>' + (t.source === 'nest' ? ' · a nest' : t.source ? ' · a source' : '') + (t.b >= 3 && !t.source ? ' · its network spills over every flood' : ''));
     if (t.source === 'nest') { const net = vc.net.nets.find(n => n.nests.includes(t.id)); if (net) { const P = nestPower(net, t.id), own = net.share[t.id].length; combat.push('<span class="eq">☠ Nest power ' + P + ' = ' + own + ' own tile' + (own === 1 ? '' : 's') + (P > own ? ' + ' + (P - own) + ' from the merged nest' : '') + '</span><br><small>Every flood it adds +1 rot to ' + P + ' of its tiles (max 3).</small>'); } }
     const tg = G.targets.includes(t.id);
     if (tg) {
       const inf = G.tinfo[t.id] || {}, a = attackOn(t), d = defense(t);
-      combat.push('<span class="warn">⚠ ' + (inf.overflow ? 'Overflow from a rot-3 tile' : 'Bad Omen: ' + G.omen) + ' — strikes next flood</span>');
+      if (inf.overflow) {   // v063: the trebuchet rolls no dice — own section, own words
+        const src = T[inf.from], lands = t.rooted && !(G.banyans.includes(t.id) && t.rs <= 1) ? 'root −1' + (t.rs <= 1 ? ' — it withers for a flood' : '') : '+1 rot';
+        combat.push('<b>💥 Overflow · trebuchet</b><br><span class="warn">from ' + (src ? src.name : 'a rot-3 tile') + (src && src.turm !== undefined ? ' (on a tower, range 2)' : '') + ' — fires next flood</span><br><span class="bad">The ball always lands: ' + lands + '</span> <small>· cleanse the trebuchet tile below 3 to stop it</small>');
+      } else {
+      combat.push('<b>☠ Bad Omen · ' + G.omen + '</b><br><span class="warn">⚠ strikes next flood</span>');
       combat.push('<span class="eq">' + atkEq(t) + '</span><br><span class="eq">' + defEq(t) + '</span>');
       combat.push((a > d ? '<span class="bad">✖ Likely falls (' + pct(1 - holdChance(d, a)) + '): +1 rot' + (t.rooted ? ', root −1' : '') + '</span> <small>— needs ' + (a - d) + ' more defence</small>' : (d === a ? '<span class="warn">⚖ Coin flip (50 %)</span> ' : '<span class="ok">✔ Likely holds (' + pct(holdChance(d, a)) + ')</span> ') + (d >= a + pushNeed() ? '<small>· and pushes the rot back</small>' : '<small>· +' + (a + pushNeed() - d) + ' defence would push it back</small>')) + '<br><small>Odds: even 50 % · +1 80 % · +2 92 % · +3 99 %</small>');
+      }
     } else if (!t.source && t.b < 3 && arms(t).length && !rotSchlaeft(t.id)) {   // v061: sleeping rot threatens nothing yet
       combat.push('<small>Next to rot. If the omen picks it:</small><br><span class="eq">' + atkEq(t) + '</span><br><span class="eq">' + defEq(t) + '</span>');
     } else if (t.rooted || here) combat.push('<span class="eq">' + defEq(t) + '</span>');
@@ -2406,7 +2453,7 @@ function renderPanel() {
   if (here) {
     if (!t.prot && t.reg !== 5) btns.push(['protect', 'Protect · +1 defence', chipT(1) + chipW(1)]);
     if (t.b > 0 && t.source !== 'wreck' && t.source !== 'nest') btns.push(['cleanse', 'Cleanse · −1 rot', chipT(2) + chipW(1) + chipN('+1 Befall')]);
-    if (katzeJagt(t)) btns.push(['shoo', '🐾 The cat chases it · −1 rot', chipN(shooPreis() + ' 🐟') + chipN('doubles each time this ebb') + chipW(1)]);
+    if (katzeJagt(t)) btns.push(['shoo', '🐾 The cat chases it · −1 rot', chipN(shooPreis() + ' 🐟') + chipN('price doubles with each chase this ebb') + chipW(1)]);
     if (t.b > 0 && t.source === 'nest') btns.push(['burn', 'Burn · −' + Math.min(2, t.b) + ' rot', chipT(2) + chipN(RULES.burnRum + ' 🥃') + chipW(1)]);   // v055: scrubbing does nothing on a nest — it has to burn
     if (t.source === 'nest' && t.b === 0) quest.push('<b>🔥 Exposed nest — hold it:</b> end the ebb right here. At flood the nest fights back — ' + (G.boss.alive && G.boss.at === t.id && !G.boss.ready ? '<b>with ' + bossName() + ' at home</b>' : 'without a boss') + '. That fight replaces the beach fight. Leave it, and it grows back.');
     else if (t.source === 'nest') quest.push('Burn it to 0 (🥃 ' + RULES.burnRum + ', Cleanse does nothing here) to expose the nest — then hold it through a flood.');
@@ -2506,7 +2553,7 @@ function renderTree() {
 const ORD_INFO = {
   roots: ['🌿', 'Roots', 'Production sap strengthens your roots, one step for every ' + RULES.sapPerRoot + ' sap. Stronger roots hold their tile better and the banyan reaches further.'],
   tower: ['🗼', 'Beach tower', 'A thorn tower on Crab Beach (' + RULES.towerSap + ' sap). When it stands it does your beach chores with your leftover beach tides: crabs, coconuts, rum for the tortoise — Silver on the compass.'],
-  tower2: ['🗼', 'Tower II', 'A second ring (' + RULES.towerSap + ' sap). Then the tower also rides the beach waves you have already beaten by hand, at about 70 % of your haul — Gold on the compass.'],
+  tower2: ['🗼', 'Tower II', 'A second ring (' + RULES.towerSap + ' sap). Then the tower also rides beach waves up to two stages past your own last ride, at about 70 % of your haul — it can lose, your upgrades set the odds. Gold on the compass.'],
   clean: ['🧹', 'Clean rot', 'Production sap scrubs rot: ' + RULES.cleanSap + ' sap for −1 rot — the banyan first, then rot 3 on your roots, then the front.'],
   ableger: ['🌱', 'Offshoot', 'A living branch (' + RULES.ablegerSap + ' sap, the banyan shrinks a level). Carry the cutting up the cliffs and plant it: a second banyan that works its own tiles.']
 };
@@ -3609,6 +3656,7 @@ WELT.api = {
   gezeigt() { lastT = 0; if (SPIEL.inselBereit) updateHUD(); },   // (while the island is still being charted there is nothing to show yet)
   hud() { if (SPIEL.inselBereit) { updateHUD(); renderPanel(); } },
   endEbb: () => endEbb(),
+  toast: t => toast(t),
   zustand: kind => mapState(kind),
   logbuchCtx: () => { const g = {}; Object.keys(G_GRUND0).forEach(k => { if (!G_SKIP.has(k)) g[k] = G_GRUND0[k]; }); return { gGrund: g, gVorlage: mapState('ebb').m.G, tBase: BASE_T }; },   // v062
   laden: st => mapLoad(st),
