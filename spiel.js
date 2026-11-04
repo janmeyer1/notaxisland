@@ -1,0 +1,1167 @@
+// ============================================================================
+// SPIEL — brings the beach (Strand) and the island (Insel) together, and holds the game's fixed CONTENT (INHALTE, below):
+//   scene switch · one render loop · the shared tide flow · shared values (💚, ✨, tower, briefcase, cat)
+//   · one save format (RSAVE) with autosave.
+// The worlds talk to each other only through this module: each world registers a handle with SPIEL.welt(name)
+// and fills handle.api with the functions SPIEL may call (see "world API" below).
+// ============================================================================
+
+// ---------------- RSAVE v1: one CSV format; a row = readable log columns + `state` (the full save of that moment) ----------------
+// state = base64url JSON { v, module: 'beach' | 'map' | 'game', kind, tide, b?, m? }. Since the merger a 'game' row carries b and m.
+export const WMAX = 60;   // v061: the Wandel bar of the long game
+export const RSAVE = {
+  V: 1,
+  CORE: ['save_v', 'game', 'module', 'tide', 'day', 'result', 'green', 'spring_max'],
+  B: ['b_tide_start', 'b_tide_spent', 'b_tide_free', 'b_green_start', 'b_green_spent', 'b_green_earned', 'b_green_free', 'b_kills', 'b_total', 'b_seconds', 'b_max_stamina', 'b_turret', 'b_map'],
+  M: ['scenario', 'beach_wave', 'barricade', 'gecko', 'banyan_level', 'offshoots', 'roots', 'rot_tiles', 'sap_last', 'wandel', 'wandel_free', 'green_avail', 'map_green_spent', 'boss_state', 'boss_stage', 'boss_recovery', 'boss_nests', 'befall', 'descent', 'cave_choices', 'cat_fate', 'key', 'mountain', 'board_treasury', 'board_stability', 'board_belief', 'board_intel', 'offensive', 'crusoe_at', 'tide_unused', 'spring', 'fruit', 'coco', 'sap_grow', 'sap_prod', 'prio', 'order', 'root_target', 'unlocks', 'tower_paid', 'cutting', 'gecko_fed', 'banyan_friend', 'offshoot_tiles', 'roots_map', 'rot_map', 'prot', 'vents', 'explored', 'boss_at', 'boss_ready', 'board_pause', 'board_off', 'offers', 'flags', 'collapses', 'memories', 'act_moves', 'act_harvest', 'act_protect', 'act_cleanse', 'act_plant', 'act_lava', 'act_vent', 'act_descend', 'strikes_hit', 'strikes_held', 'surprises', 'nest_fight', 'case_found', 'off_n', 'armies', 'finale', 'free_play'].map(k => 'm_' + k),
+  cols() { return [...this.CORE, ...this.B, ...this.M, 'state']; },
+  enc(obj) { return JSON.stringify(obj); },   // v060: readable JSON in the last column (older saves: base64, still loads)
+  dec(str) { str = String(str).trim(); if (str.charAt(0) === '{') return JSON.parse(str); str = str.replace(/-/g, '+').replace(/_/g, '/'); while (str.length % 4) str += '='; return JSON.parse(decodeURIComponent(escape(atob(str)))); },
+  cell(v, k) { return v === undefined || v === null ? '' : k === 'state' ? String(v).replace(/[\r\n]/g, ' ') : String(v).replace(/[,\r\n]/g, ';'); },   // v060: the state keeps its commas — it is always the last column
+  row(o) { return this.cols().map(k => this.cell(o[k], k)).join(','); },
+  csv(rows) { return [this.cols().join(',')].concat(rows.map(r => this.row(r))).join('\n'); },
+  parse(text) {   // a whole CSV, or one row with or without the header line
+    const lines = String(text || '').trim().split(/\r?\n/).filter(l => l.trim()); if (!lines.length) return [];
+    let hdr = this.cols(); if (lines[0].split(',').includes('state')) hdr = lines.shift().split(',');
+    const si = hdr.indexOf('state'), last = si === hdr.length - 1;
+    return lines.map(l => { const t = l.trim(); if (t.charAt(0) === '{') return { state: t };   // v060: one bare JSON state
+      const v = l.split(','), o = {}; hdr.forEach((k, i) => o[k] = v[i] === undefined ? '' : v[i]); if (last && v.length > hdr.length) o.state = v.slice(si).join(',');   // JSON state: everything from its column on
+      if (!o.state && /^[A-Za-z0-9_-]{40,}$/.test(t)) o.state = t; return o; });
+  },
+  pick(text, module, tide) {   // the row to load: the given tide, else the last row that carries a usable state ('game' = anything)
+    const ok = st => module === 'beach' ? st.b : module === 'map' ? st.m : (st.b || st.m);
+    const rows = this.parse(text).filter(r => r.state).map(r => { try { return { r, st: this.dec(r.state) }; } catch (e) { return null; } }).filter(x => x && x.st && ok(x.st));
+    if (!rows.length) return null;
+    if (tide) { const hit = rows.filter(x => +x.st.tide === +tide); if (hit.length) return hit[hit.length - 1]; }
+    return rows[rows.length - 1];
+  }
+};
+
+// ---------------- worlds, scene switch, one render loop ----------------
+// world API (filled by the worlds):
+//   strand: kannWechseln, gezeigt, tag, welle, gruen/gruenSetzen, zustand, laden, bilanz, flutAlt, flut(info), kampf(n), tagOhneKampf(grund), tagSetzen(t), demoEnde(onPlay), hud
+//   insel:  kannWechseln, kannEnden, gezeigt, start(t0), endEbb, zustand(kind), laden(st), bilanz, spring, springNehmen, turm, kofferFaellig, koffer, katzeWeg, wartet, tide, hud
+const W = {};
+const pending = {};
+let aktiv = 'strand';
+function tick(ts) {
+  const f = pending[aktiv]; if (f) { pending[aktiv] = null; f(ts); }
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+const SAVE_KEY = 'robinson_save_v1', LOG_KEEP = 50;
+// the readable columns of the save file (one row per flood), `state` last
+const LOG_COLS = ['tide', 'wave', 'result', 'green', 'spring', 'stamina', 'beach_tide_used', 'kills', 'seconds', 'upgrades', 'turret', 'surf', 'banyan_level', 'roots', 'rot_tiles', 'nests', 'wandel', 'boss', 'board', 'offensive', 'armies', 'island_fight', 'strikes', 'briefcase', 'cat', 'msg_backlog', 'tutorial', 'state'];
+const api = n => (W[n] && W[n].api) || {};
+
+export const SPIEL = {
+  RSAVE,
+  welt(name) {   // called once at the top of each world
+    const root = document.getElementById(name);
+    const w = { name, root, api: {}, $: id => root.querySelector('#' + id), raf: f => { pending[name] = f; }, aktiv: () => aktiv === name };
+    W[name] = w; return w;
+  },
+  get aktiv() { return aktiv; },
+  zeige(name, opt) {
+    opt = opt || {};
+    if (name === aktiv || !W[name]) return true;
+    if (!opt.force && api(aktiv).kannWechseln && !api(aktiv).kannWechseln()) return false;
+    W[aktiv].root.style.display = 'none'; W[name].root.style.display = ''; aktiv = name;
+    if (W[name].root.animate) W[name].root.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 300, easing: 'ease-out' });   // v036: a short fade instead of a hard cut
+    SOUND.szene(name);
+    if (name === 'insel' && !this.inselGestartet()) this.inselStarten(api('strand').tag());
+    if (api(name).gezeigt) api(name).gezeigt();
+    return true;
+  },
+  // ---- the island exists once the player has opened it (or a save brings it along) ----
+  _inselStart: null, inselBereit: false,
+  inselGestartet() { return !!this._inselStart; },
+  inselStarten(t0) {
+    if (!this._inselStart) this._inselStart = Promise.resolve(api('insel').start(t0)).then(() => { this.inselBereit = true; api('strand').hud && api('strand').hud(); });
+    return this._inselStart;
+  },
+  // ---- the shared tide flow: one "End ebb" for both scenes ----
+  _flut: false,
+  get flutLaeuft() { return this._flut; },
+  async endEbb() {
+    if (this._flut) return;
+    if (!this.inselBereit) return api('strand').flutAlt();   // the beach alone, as before the island opened
+    if (!api('insel').kannEnden()) return;
+    this._flut = true; const start = aktiv;
+    try { this.zeige('insel', { force: true }); await api('insel').endEbb(); }   // island first; it calls strandFlut() before its next ebb
+    finally { this._flut = false; }
+    if (aktiv !== start) this.zeige(start, { force: true });   // v036: you end up where you pressed End ebb
+    api('strand').hud(); api('insel').hud();
+    this.autosave(); FLUTBERICHT.zeigen();
+  },
+  async strandFlut(info) {   // called by the island in the middle of its flood · info: { skip, grund, boss }
+    if (info.skip) { api('strand').tagOhneKampf(info.grund); return { skipped: true }; }
+    this.zeige('strand', { force: true });
+    return await api('strand').flut(info);
+  },
+  async surf(cfg) {   // v041: the one combat screen (world 'kampf'); the beach asks for a fight and gets the result back
+    const back = aktiv === 'kampf' ? 'strand' : aktiv;
+    this.zeige('kampf', { force: true });
+    try { return await api('kampf').start(cfg); } finally { this.zeige(back, { force: true }); }
+  },
+  async kampf(n) {   // nest / army fight from the island: played on the beach, then back
+    this.zeige('strand', { force: true });
+    const win = await api('strand').kampf(n);
+    this.zeige('insel', { force: true });
+    return win;
+  },
+  // ---- shared values ----
+  gruen() { return api('strand').gruen(); },
+  gruenSetzen(v) { api('strand').gruenSetzen(v); },
+  rum() { return api('strand').rum ? api('strand').rum() : 0; },
+  geschenk(id) { const s = api('strand'); if (s.geschenk) s.geschenk(id); },
+  rumSetzen(v) { api('strand').rumSetzen(v); },
+  schwaenze() { return api('strand').schwaenze(); },   // v058: fish tails for the island (the cat's chase, the Board's rescue)
+  schwaenzeSetzen(v) { api('strand').schwaenzeSetzen(v); },
+  upgB(id) { return api('strand').upgB(id); },
+  spring() { return this.inselBereit ? api('insel').spring() : 0; },
+  springNehmen() { return this.inselBereit && api('insel').springNehmen(); },
+  turm() { return this.inselBereit && api('insel').turm(); },
+  turmStufe() { return this.inselBereit && api('insel').turmStufe ? api('insel').turmStufe() : 0; },   // v043: 0 none · 1 tower (Silver) · 2 tower II (Gold)
+  kofferFaellig() { return this.inselBereit && api('insel').kofferFaellig(); },
+  kofferGefunden() { if (this.inselBereit) { api('insel').koffer(); api('strand').hud(); } },   // v061: found before the island? the island picks it up when it starts
+  rotGekaempft() { return this.inselBereit && api('insel').rotGekaempft(); },
+  kofferHat() { return this.inselBereit ? api('insel').kofferHat() : false; },
+  kofferStrand() { return !!(api('strand').kofferDa && api('strand').kofferDa()); },
+  inselWartet() { return this.inselBereit && api('insel').wartet(); },
+  katzeWeg() { return this.inselBereit && api('insel').katzeWeg(); },
+  welle() { return api('strand').welle(); },
+  // ---- v034: Fi, the elf tree, the cat's picture ----
+  fi() { return this.inselBereit && api('insel').fi(); },
+  baum() {   // every upgrade of both worlds as nodes for the elf tree (Fi in the middle, the banyan's Listen beside her)
+    const fi = { id: 'fi', welt: 'insel', name: 'Fi', desc: 'Fiduciary, once a briefcase, now bound to the banyan. She walks your Dream now and reads the banyan to you.', grp: 'elf', cur: null, lvl: 1, max: 1, state: 'max' };
+    return [fi].concat(api('strand').baum(), this.inselBereit ? api('insel').baum().filter(n => n.id !== 'elf') : []);
+  },
+  baumKauf(id) { const n = this.baum().find(x => x.id === id); if (!n || !n.cur) return false; return n.welt === 'strand' ? api('strand').kaufe(id) : api('insel').lerne(id); },
+  // ---- v056: the Dream (traum.js) — every upgrade of both worlds, bought through the worlds themselves ----
+  traumKnoten() { return api('strand').baum().concat(this.inselBereit ? api('insel').baum() : []); },
+  traumKauf(id) { const n = this.traumKnoten().find(x => x.id === id); if (!n || !n.cur) return false; return n.welt === 'strand' ? api('strand').kaufe(id) : api('insel').lerne(id); },
+  traumGesehen() { return api('strand').traumGesehen(); },   // what the Dream has already shown (kept in the beach save)
+  traumKatzeWeg() { return this.katzeWeg() || api('strand').katzeWegB(); },
+  traumDarf() { return !this._flut && aktiv !== 'kampf' && !api('strand').imKampf(); },
+  traum() { return TRAUM.zeigen(); },
+  traumZu() { api('strand').hud(); if (this.inselBereit) { api('insel').hud(); if (api('insel').baumNeu) api('insel').baumNeu(); } },
+  katzenSzene() { return api('strand').katzenSzene; },
+  katze(o) { KATZE.zeigen(o); },
+  // v062: a white-and-green ring around a UI element for a while (no click needed) — for the tortoise's "over there"
+  ring(target, ms) { const e = typeof target === 'string' ? document.querySelector(target) : target; if (!e) return null; const d = document.createElement('div'); d.className = 'uiRing'; document.body.appendChild(d); const t0 = performance.now(), dur = ms || 10000;
+    const f = () => { if (performance.now() - t0 > dur || !d.isConnected) { d.remove(); return; } const r = e.getBoundingClientRect(), vis = r.width > 0 && getComputedStyle(e).visibility !== 'hidden' && e.offsetParent !== null;
+      d.style.display = vis ? 'block' : 'none'; if (vis) { const pad = 6; Object.assign(d.style, { left: (r.left - pad) + 'px', top: (r.top - pad) + 'px', width: (r.width + 2 * pad) + 'px', height: (r.height + 2 * pad) + 'px', borderRadius: Math.min(r.width, r.height) > 120 ? '50%' : '14px' }); } requestAnimationFrame(f); };
+    f(); return d; },
+  regeln(tab) { REGELN.zeigen(tab); },   // v044: 'surf' or 'insel'   // v036: the one cat window
+  tester: /[?&]test\b/.test(location.search),
+  testerAn() { this.tester = true; document.body.classList.add('tester'); },
+  get katzeOffen() { return KATZE.open; },
+  katzeZu() { KATZE.zu(); },
+  katzeCodes() { return Object.keys(KATZE.codes()); },
+  demoEnde() { return new Promise(res => { this.zeige('strand', { force: true }); api('strand').demoEnde(() => { this.zeige('insel', { force: true }); res(); }); }); },   // v033: the end-of-demo screen (shown in the beach scene, it owns the title picture)
+  tagAngleichen(t) { if (api('strand').tag() !== t) api('strand').tagSetzen(t); },   // island-only loads / shortcuts: the beach takes the island's tide
+  // ---- save / load ----
+  zustand() {
+    const b = api('strand').zustand(), st = { v: RSAVE.V, module: 'game', kind: 'ebb', tide: b.tide, first: b.first, b: b.b };
+    if (this.inselBereit) { const m = api('insel').zustand('ebb'); st.m = m.m; st.tide = m.tide; }
+    return st;
+  },
+  // v033: THE SAVE IS THE LOG — one file per game, one readable row per flood (start of the next ebb), the full state in the
+  // last column. The newest LOG_KEEP rows keep their state (loadable), older rows keep only the readable columns.
+  log: null,
+  logLesen() { if (!this.log) { this.log = []; try { const t = localStorage.getItem(SAVE_KEY); if (t && t.split('\n')[0].split(',')[0] === 'tide') this.log = RSAVE.parse(t); } catch (e) {} } return this.log; },
+  logText() { return [LOG_COLS.join(',')].concat(this.logLesen().map(r => LOG_COLS.map(k => RSAVE.cell(r[k], k)).join(','))).join('\n'); },
+  logZeile() {
+    const st = this.zustand(), b = api('strand').bilanz(), m = this.inselBereit ? api('insel').bilanz() : {};
+    return Object.assign({ tide: st.tide, spring: st.m ? st.m.G.springMax : '' }, b, m, { state: RSAVE.enc(st) });
+  },
+  autosave() {
+    if (this._laedt) return;   // v037: loading never writes (CONTINUE used to put a beach-only row over the full one)
+    const log = this.logLesen();
+    if (!this.inselBereit && log.some(r => r.state && r.banyan_level !== undefined && r.banyan_level !== '')) return;   // v037: a row with the island is never replaced by one without
+    const z = this.logZeile();
+    while (log.length && +log[log.length - 1].tide >= +z.tide) log.pop();   // a reload / new start of the same tide replaces its row
+    log.push(z); log.forEach((r, i) => { if (i < log.length - LOG_KEEP) r.state = '';
+      else if (i < log.length - 1 && r.state && r.state.charAt(0) === '{' && r.state.indexOf('"frisch"') >= 0) { try { const st = JSON.parse(r.state); if (st.m && st.m.G && st.m.G.frisch) { delete st.m.G.frisch; r.state = JSON.stringify(st); } } catch (e) {} } });   // v061: the island snapshot only in the newest row (it doubled every row)
+    try { localStorage.setItem(SAVE_KEY, this.logText()); } catch (e) {}
+  },
+  autosaveInfo() { const log = this.logLesen(), last = log[log.length - 1]; return last && last.state ? { tide: last.tide } : null; },
+  async ladeAutosave() { const log = this.logLesen(), last = log[log.length - 1]; if (last && last.state) await this.laden(RSAVE.dec(last.state), true); },
+  neuesSpiel() { this.log = []; try { localStorage.removeItem(SAVE_KEY); } catch (e) {} },
+  neustart() { this.neuesSpiel(); location.reload(); },
+  async laden(st, keepLog) {
+    this._laedt = true; try { await this._laden(st, keepLog); } finally { this._laedt = false; }
+  },
+  async _laden(st, keepLog) {
+    if (!keepLog) this.log = [];   // loading something else starts a fresh log from that moment (a pasted game file brings its own rows, see ladenDialog)
+    if (st.b) api('strand').laden(st); else if (api('strand').aufTitel()) api('strand').titelVerlassen();   // v059
+    if (st.m) {
+      if (!this.inselGestartet()) await this.inselStarten((st.m.G && st.m.G.t0) || 11); else await this._inselStart;
+      api('insel').laden(st);
+      if (!st.b) api('strand').tagSetzen(api('insel').tide());   // an old island-only save: the beach follows its tide
+    }
+    this.zeige(st.m && !st.b ? 'insel' : 'strand', { force: true });
+    api('strand').hud(); if (this.inselBereit) api('insel').hud();
+  },
+  // ---- 💾 / 📂 (one dialog for the whole game; the buttons sit in the cat's big window) ----
+  // v062: 💾 copies the tortoise's logbook (the story save); the CSV test log is its own export (testLogKopieren)
+  async logbuchText() { return LOGBUCH.enc(this.zustand(), this.logbuchCtx()); },
+  logbuchCtx() { const c = { bGrund: api('strand').grund(), bVorlage: api('strand').zustand().b, upg: api('strand').upgListe(), unl: UNLOCKS.map(u => ({ id: u.id, name: u.name })) };
+    if (this.inselBereit) Object.assign(c, api('insel').logbuchCtx());
+    c.inselCtx = async t0 => { if (!this.inselGestartet()) await this.inselStarten(t0); else await this._inselStart; return api('insel').logbuchCtx(); }; return c; },
+  async logbuchLaden(text) { const st = await LOGBUCH.dec(text, this.logbuchCtx()); this.log = []; await this.laden(st, true); TRAUM.allesGesehen(); this.autosave(); return st; },
+  speichernManuell(done) { this.logbuchText().then(txt => this.kopieren(txt, done), e => { console.error(e); done && done(false); }); },
+  testLogKopieren(done) { if (!this.logLesen().length) this.autosave(); return this.kopieren(this.logText(), done); },
+  kopieren(txt, done) {
+    const ok = () => done && done(true), fail = () => done && done(false);
+    try { navigator.clipboard.writeText(txt).then(ok, () => fallback()); } catch (e) { fallback(); }
+    function fallback() { const ta = document.createElement('textarea'); ta.value = txt; ta.style.cssText = 'position:fixed;left:-9999px;top:0'; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); ok(); } catch (e) { fail(); } ta.remove(); }
+    return txt;
+  },
+  ladenDialog() {
+    if (!this._dlg) this._dlg = baueDialog(text => {
+      if (LOGBUCH.ist(text)) { this.logbuchLaden(text).then(() => { this._dlg.style.display = 'none'; }, e => { document.getElementById('svMsg').textContent = e.logbuch ? e.message : 'The logbook could not be read.'; console.error(e); }); return 'Reading the logbook…'; }   // v062
+      const p = RSAVE.pick(text, 'game', document.getElementById('svTide').value);
+      if (!p) return 'No save found in that text.';
+      const rows = RSAVE.parse(text), own = rows.length && rows[0].wave !== undefined && rows[0].save_v === undefined;   // a game file: keep its rows up to the loaded tide
+      this.log = own ? rows.filter(r => +r.tide <= +p.st.tide) : [];
+      this.laden(p.st, true).then(() => { if (!own) this.autosave(); }); return '';
+    });
+    this._dlg.style.display = 'flex'; document.getElementById('svMsg').textContent = '';
+  },
+};
+
+// ---------- v036: the End-ebb compass — one round button for both scenes; the tides orbit it like small planets:
+// island tide (blue waves) left, beach tide (cyan waves) right, the shared spring tide (gold sparks) on top; a spent tide stays as an outline.
+// A small ship's-wheel ring beside it is kept free for a later automatic flood.
+const KOMPASS = (() => {
+  const WAVE = new Path2D('M-9 5 Q-10 -2 -4 -7 Q2 -11 8 -7 Q10 -5 8 -3 Q5 -6 2 -4 Q-1 -2 1 2 Q4 5 9 4 Q11 9 6 10.5 Q0 12.5 -6 10.5 Q-9.5 9 -9 5Z');
+  const FOAM = new Path2D('M-6 -6 Q0 -10 6 -7'), FOAM2 = new Path2D('M1 3 Q4 6 9 5');
+  const SPARK = new Path2D('M0 -11 Q1.4 -1.4 11 0 Q1.4 1.4 0 11 Q-1.4 1.4 -11 0 Q-1.4 -1.4 0 -11Z M7 -9 Q7.5 -7.5 9 -7 Q7.5 -6.5 7 -5 Q6.5 -6.5 5 -7 Q6.5 -7.5 7 -9Z');
+  let el, cv, hit, isl, str, last = '';
+  // v037: the scene buttons sit below the compass (island left = blue, beach right = cyan), each with a greyed automation wheel in the gap above it
+  const WW = 250, HH = 234, CX = 140, CY = 120, R = 54, OR = R + 30, SB = { r: 24, dx: 64, y: CY + R + 34 }, AW = { r: 24, dx: 78, y: CY - 92 };   // v040: automation wheels on top, outside the orbit, as big as the scene buttons; centre still 114 px above the bottom, like the hub's
+  function bau() {
+    el = document.createElement('div'); el.id = 'ebb';
+    el.innerHTML = '<canvas id="ebbCv"></canvas><button id="ebbHit" aria-label="End ebb"></button>' +
+      '<button id="ebbIsl" class="ebbS" aria-label="Island"></button><button id="ebbStr" class="ebbS" aria-label="Beach"></button>' +
+      '<button id="ebbAutoI" class="ebbA" title="Automatic island floods · coming later" aria-label="Automatic island floods (coming later)"></button><button id="ebbAutoS" class="ebbA" title="Automatic beach floods · coming later" aria-label="Automatic beach floods (coming later)"></button>';
+    document.body.appendChild(el); cv = el.querySelector('canvas'); hit = el.querySelector('#ebbHit'); isl = el.querySelector('#ebbIsl'); str = el.querySelector('#ebbStr');
+    const pl = (b, x, y, r) => Object.assign(b.style, { left: (x - r) + 'px', top: (y - r) + 'px', width: 2 * r + 'px', height: 2 * r + 'px' });
+    pl(hit, CX, CY, R); pl(isl, CX - SB.dx, SB.y, SB.r); pl(str, CX + SB.dx, SB.y, SB.r); pl(el.querySelector('#ebbAutoI'), CX - AW.dx, AW.y, AW.r); pl(el.querySelector('#ebbAutoS'), CX + AW.dx, AW.y, AW.r);
+    hit.onclick = () => { const b = knopf(); if (b) b.click(); };
+    isl.onclick = () => { if (aktiv === 'strand') W.strand.$('mapBtn').click(); };
+    str.onclick = () => { if (aktiv === 'insel') W.insel.$('bBeach').click(); };
+    el.querySelector('#ebbAutoS').onclick = () => { if (api('strand').autoToggle) { api('strand').autoToggle(); if (SPIEL.inselBereit && api('insel').turmRingAus) api('insel').turmRingAus(); last = null; tick(); } };   // v043: off → Silver → Gold → off
+    setInterval(tick, 120);
+  }
+  const autoB = () => api('strand').auto ? api('strand').auto() : { mode: 'off', lvl: 0 };
+  const knopf = () => aktiv === 'strand' ? W.strand.$('waitBtn') : aktiv === 'insel' ? W.insel && W.insel.$('bEnd') : null;   // v041: nothing during a surf fight
+  const zuInsel = () => aktiv === 'insel' || W.strand.$('mapBtn').style.display === 'inline-block', zuStrand = () => aktiv === 'strand' || (W.insel && W.insel.$('bBeach').style.display !== 'none');
+  const sichtbar = () => { const b = knopf(); return !!b && b.style.display === 'block' && !KATZE.open && !REGELN.open && !SPIEL.flutLaeuft && !(api(aktiv).modal && api(aktiv).modal()); };
+  function tick() {
+    const b = knopf(), sicht = sichtbar();
+    el.style.display = sicht ? 'block' : 'none'; if (!sicht) return;
+    const st = api('strand').tiden ? api('strand').tiden() : { n: 0, max: 8 }, is = SPIEL.inselBereit ? api('insel').tiden() : null;
+    const t = performance.now() / 1000, pulse = b.classList.contains('pulse') || b.classList.contains('hint'), hint = aktiv === 'strand' && W.strand.$('mapBtn').classList.contains('hint');
+    const sc = { aktiv, isl: zuInsel(), str: zuStrand(), neu: !SPIEL.inselGestartet() };
+    isl.style.display = sc.isl ? 'block' : 'none'; str.style.display = sc.str ? 'block' : 'none'; el.querySelectorAll('.ebbA').forEach(b => b.style.display = SPIEL.inselGestartet() ? 'block' : 'none');
+    isl.title = aktiv === 'insel' ? 'Island · you are here' : sc.neu ? 'The island map' : 'To the island'; str.title = aktiv === 'strand' ? 'Beach · you are here' : 'To the beach';
+    sc.tide = api('strand').tag ? api('strand').tag() : 0;
+    { const a = autoB(), ab = el.querySelector('#ebbAutoS'); ab.title = a.lvl ? 'Beach automation: ' + { off: 'off', silver: 'Silver — the tower does the beach chores', gold: 'Gold — chores, and it rides up to 2 stages past your own last ride' }[a.mode] + ' · tap to change' : 'Beach automation · needs the beach tower (island)'; ab.style.cursor = a.lvl ? 'pointer' : 'help'; sc.auto = a.mode + a.lvl; sc.ring = SPIEL.inselBereit && api('insel').turmRing && api('insel').turmRing(); }
+    const key = [sc.auto, sc.ring ? Math.round(t * 6) : 0, st.n, st.max, is && is.n, is && is.max, is && is.spring, is && is.springMax, is && is.flash, pulse || hint ? Math.round(t * 8) : 0, aktiv, sc.isl, sc.str, sc.tide].join();
+    if (key !== last) { last = key; draw(st, is, pulse, t, sc, hint); }
+  }
+  function szene(c, x, y, welt, sc, hint, t) {   // a round scene button with a drawn icon; the current scene is lit
+    const hier = sc.aktiv === welt, r = SB.r * (hint ? 1 + .06 * Math.sin(t * 7) : 1);
+    if (hier) { const g = c.createRadialGradient(x, y, r * .6, x, y, r + 10); g.addColorStop(0, 'rgba(255,230,140,.55)'); g.addColorStop(1, 'rgba(255,230,140,0)'); c.fillStyle = g; c.beginPath(); c.arc(x, y, r + 10, 0, 7); c.fill(); }
+    if (hint) { c.strokeStyle = 'rgba(255,211,106,' + (.5 + .4 * Math.sin(t * 7)) + ')'; c.lineWidth = 3; c.beginPath(); c.arc(x, y, r + 6, 0, 7); c.stroke(); }
+    c.fillStyle = 'rgba(0,0,0,.35)'; c.beginPath(); c.arc(x, y + 2, r + 1, 0, 7); c.fill();
+    const br = c.createRadialGradient(x - r * .3, y - r * .4, 2, x, y, r); br.addColorStop(0, '#fff0b8'); br.addColorStop(.55, '#d9a441'); br.addColorStop(1, '#8a5a14'); c.fillStyle = br; c.beginPath(); c.arc(x, y, r, 0, 7); c.fill();
+    c.save(); c.beginPath(); c.arc(x, y, r - 4, 0, 7); c.clip();
+    const face = welt === 'insel' ? ['#4f95f0', '#1d4fb8'] : ['#5fe0d8', '#139c9a'], fg = c.createLinearGradient(0, y - r, 0, y + r); fg.addColorStop(0, face[0]); fg.addColorStop(1, face[1]); c.fillStyle = fg; c.fillRect(x - r, y - r, 2 * r, 2 * r);
+    c.translate(x, y); c.lineCap = 'round'; c.lineJoin = 'round';
+    if (welt === 'insel') {   // a little island: hill, palm, the banyan's crown
+      c.fillStyle = 'rgba(255,255,255,.35)'; c.fillRect(-r, 8, 2 * r, 2);
+      c.fillStyle = '#e9d29a'; c.beginPath(); c.ellipse(0, 9, 15, 5, 0, Math.PI, 0); c.fill();
+      c.fillStyle = '#2f8a3a'; c.beginPath(); c.ellipse(-3, 4, 10, 6, 0, Math.PI, 0); c.fill();
+      c.strokeStyle = '#6b4520'; c.lineWidth = 2; c.beginPath(); c.moveTo(6, 7); c.quadraticCurveTo(8, -1, 5, -8); c.stroke();
+      c.strokeStyle = '#3fae46'; c.lineWidth = 2.2; [[-9, -6], [-4, -12], [3, -13], [9, -8]].forEach(([dx, dy]) => { c.beginPath(); c.moveTo(5, -8); c.quadraticCurveTo(5 + dx * .5, -8 + dy * .2 - 3, 5 + dx, -8 + dy * .5 + 3); c.stroke(); });
+    } else {   // the beach: sand, a breaking wave, the sun
+      c.fillStyle = '#ffe9a8'; c.beginPath(); c.arc(8, -8, 4.5, 0, 7); c.fill();
+      c.fillStyle = '#e9d29a'; c.beginPath(); c.moveTo(-r, 12); c.quadraticCurveTo(0, 4, r, 9); c.lineTo(r, r); c.lineTo(-r, r); c.fill();
+      c.save(); c.translate(-3, 0); c.scale(-.85, .85); c.fillStyle = '#e8fffc'; c.fill(WAVE); c.strokeStyle = '#0a5a5a'; c.lineWidth = 1.2; c.stroke(WAVE); c.restore();
+    }
+    c.restore();
+    c.strokeStyle = '#5a3a0a'; c.lineWidth = 1.2; c.beginPath(); c.arc(x, y, r - 4, 0, 7); c.stroke();
+    if (!hier) { c.fillStyle = 'rgba(8,24,36,.28)'; c.beginPath(); c.arc(x, y, r - 4, 0, 7); c.fill(); }
+  }
+  function rad(c, x, y, mode, avail) {   // a ship's wheel: automatic floods — grey (island: coming later), v043 beach: off / Silver / Gold
+    const r = AW.r, col = mode === 'gold' ? '#f2c14e' : mode === 'silver' ? '#d9e2ea' : avail ? 'rgba(220,220,220,.8)' : 'rgba(190,190,190,.5)';
+    c.fillStyle = mode === 'gold' ? 'rgba(90,60,10,.75)' : mode === 'silver' ? 'rgba(40,56,70,.75)' : 'rgba(8,24,36,.6)'; c.beginPath(); c.arc(x, y, r, 0, 7); c.fill();
+    if (mode !== 'off' && mode) { const g = c.createRadialGradient(x, y, r * .5, x, y, r + 8); g.addColorStop(0, mode === 'gold' ? 'rgba(255,210,90,.45)' : 'rgba(220,235,250,.35)'); g.addColorStop(1, 'rgba(0,0,0,0)'); c.fillStyle = g; c.beginPath(); c.arc(x, y, r + 8, 0, 7); c.fill(); }
+    c.strokeStyle = col; c.lineWidth = 2; if (!avail) c.setLineDash([4, 4]); c.beginPath(); c.arc(x, y, r, 0, 7); c.stroke(); c.setLineDash([]);
+    c.strokeStyle = col; c.lineWidth = mode && mode !== 'off' ? 2.6 : 2; for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; c.beginPath(); c.moveTo(x + Math.cos(a) * r * .38, y + Math.sin(a) * r * .38); c.lineTo(x + Math.cos(a) * r * .8, y + Math.sin(a) * r * .8); c.stroke(); } c.beginPath(); c.arc(x, y, r * .36, 0, 7); c.stroke(); c.beginPath(); c.arc(x, y, r * .62, 0, 7); c.stroke();
+  }
+  function draw(st, is, pulse, t, sc, hint) {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2); if (cv.width !== WW * dpr) { cv.width = WW * dpr; cv.height = HH * dpr; }
+    const c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, WW, HH);
+    const P = (a, r) => [CX + Math.cos(a * Math.PI / 180) * r, CY + Math.sin(a * Math.PI / 180) * r];
+    c.fillStyle = 'rgba(8,24,36,.36)'; c.beginPath(); c.arc(CX, CY, OR + 13, 0, 7); c.fill();
+    c.strokeStyle = 'rgba(255,240,190,.28)'; c.lineWidth = 1.2; c.setLineDash([2, 6]); c.beginPath(); c.arc(CX, CY, OR, 0, 7); c.stroke(); c.setLineDash([]);
+    const icon = (a, on, kind) => { const [x, y] = P(a, OR); c.save(); c.translate(x, y);
+      if (kind === 'spark') { c.scale(.85, .85); if (on) { const g = c.createLinearGradient(-10, -10, 10, 10); g.addColorStop(0, '#fff2b0'); g.addColorStop(1, '#d49a2a'); c.fillStyle = g; c.fill(SPARK); c.strokeStyle = '#7a5210'; c.lineWidth = .8; c.stroke(SPARK); } else { c.strokeStyle = 'rgba(255,240,190,.45)'; c.lineWidth = 1; c.stroke(SPARK); } }
+      else { c.scale(kind === 'c' ? -.8 : .8, .8);   // the beach waves are mirrored: both sides break towards the button
+        if (on) { const g = c.createLinearGradient(0, -10, 0, 11); if (kind === 'b') { g.addColorStop(0, '#6fb0ff'); g.addColorStop(1, '#1d4fb8'); } else { g.addColorStop(0, '#9ff7ec'); g.addColorStop(1, '#139c9a'); }
+          c.fillStyle = g; c.fill(WAVE); c.strokeStyle = '#0a2030'; c.lineWidth = 1.2; c.stroke(WAVE); c.strokeStyle = '#fff'; c.lineWidth = 1.6; c.lineCap = 'round'; c.stroke(FOAM); c.strokeStyle = 'rgba(255,255,255,.7)'; c.lineWidth = 1.2; c.stroke(FOAM2); }
+        else { c.strokeStyle = 'rgba(220,240,255,.5)'; c.lineWidth = 1.2; c.stroke(WAVE); } }
+      c.restore(); };
+    const arc = (mid, n, left, kind, sp) => { for (let i = 0; i < n; i++) icon(mid + (i - (n - 1) / 2) * sp, i >= n - left, kind); };
+    if (is) for (let i = 0; i < is.max; i++) icon(234 - i * 15.5 * 8 / Math.max(8, is.max), i >= is.max - is.n, 'b');
+    for (let i = 0; i < st.max; i++) icon(-54 + i * 15.5 * 8 / Math.max(8, st.max), i >= st.max - st.n, 'c');
+    if (is && is.springMax) { const n = Math.min(is.springMax, 7); arc(-90, n, Math.min(is.spring, n), 'spark', 13);   // room for up to 7 sparks on top
+      if (is.springMax > 7) { c.fillStyle = '#fff2b0'; c.font = '700 11px Fredoka, sans-serif'; c.textAlign = 'center'; c.fillText('+' + (is.springMax - 7), CX, CY - OR - 14); } }
+    if (is && is.flash) { c.save(); c.strokeStyle = 'rgba(255,226,120,' + (.5 + .5 * Math.sin(t * 12)) + ')'; c.lineWidth = 5; c.shadowColor = '#ffe08a'; c.shadowBlur = 14; c.beginPath(); c.arc(CX, CY, OR + 10, -Math.PI * .85, -Math.PI * .15); c.stroke(); c.restore(); }   // v061: a new spring tide
+    // the button: a brass rim with degree marks and four golden points, the face split island blue / beach cyan
+    const k = pulse ? 1 + .04 * Math.sin(t * 7) : 1;
+    c.save(); c.translate(CX, CY); c.scale(k, k);
+    c.fillStyle = 'rgba(0,0,0,.35)'; c.beginPath(); c.arc(0, 3, R + 2, 0, 7); c.fill();
+    const br = c.createRadialGradient(-R * .3, -R * .4, 4, 0, 0, R); br.addColorStop(0, '#fff0b8'); br.addColorStop(.55, '#d9a441'); br.addColorStop(1, '#8a5a14');
+    c.fillStyle = br; c.beginPath(); c.arc(0, 0, R, 0, 7); c.fill(); c.strokeStyle = '#5a3a0a'; c.lineWidth = 1.5; c.stroke();
+    c.save(); c.beginPath(); c.arc(0, 0, R - 9, 0, 7); c.clip(); c.fillStyle = '#2a6fd0'; c.fillRect(-R, -R, R, 2 * R); c.fillStyle = '#1fb3b0'; c.fillRect(0, -R, R, 2 * R);
+    c.fillStyle = 'rgba(255,255,255,.18)'; c.beginPath(); c.ellipse(0, -18, R - 18, 16, 0, 0, 7); c.fill(); c.strokeStyle = 'rgba(255,240,190,.55)'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(0, -R); c.lineTo(0, R); c.stroke(); c.restore();
+    c.strokeStyle = '#5a3a0a'; c.lineWidth = 1.2; c.beginPath(); c.arc(0, 0, R - 9, 0, 7); c.stroke();
+    c.strokeStyle = '#4a2e08'; for (let d = 0; d < 360; d += 10) { const a = d * Math.PI / 180, r2 = R - (d % 90 === 0 ? 8 : d % 30 === 0 ? 6 : 4); c.lineWidth = d % 90 === 0 ? 1.8 : 1; c.beginPath(); c.moveTo(Math.cos(a) * (R - 1.5), Math.sin(a) * (R - 1.5)); c.lineTo(Math.cos(a) * r2, Math.sin(a) * r2); c.stroke(); }
+    [0, 90, 180, 270].forEach(d => { const a = d * Math.PI / 180, l = a + Math.PI / 2, x = Math.cos(a) * (R - 4.5), y = Math.sin(a) * (R - 4.5), g = c.createLinearGradient(-6, -6, 6, 6); g.addColorStop(0, '#fff2b0'); g.addColorStop(1, '#d49a2a');
+      c.fillStyle = g; c.beginPath(); c.moveTo(Math.cos(a) * (R + 6), Math.sin(a) * (R + 6)); c.lineTo(x + Math.cos(l) * 4, y + Math.sin(l) * 4); c.lineTo(Math.cos(a) * (R - 10), Math.sin(a) * (R - 10)); c.lineTo(x - Math.cos(l) * 4, y - Math.sin(l) * 4); c.closePath(); c.fill(); c.strokeStyle = '#7a5210'; c.lineWidth = .8; c.stroke(); });
+    c.font = '700 21px Fredoka, sans-serif'; c.textAlign = 'center'; c.lineJoin = 'round'; c.strokeStyle = '#0b2236'; c.lineWidth = 4; c.fillStyle = '#fff6e3';
+    c.strokeText('END', 0, -3); c.fillText('END', 0, -3); c.strokeText('EBB', 0, 20); c.fillText('EBB', 0, 20);
+    c.restore();
+    if (SPIEL.inselGestartet()) { const a = autoB(); rad(c, CX - AW.dx, AW.y, null, false); rad(c, CX + AW.dx, AW.y, a.mode, a.lvl > 0);
+      if (sc.ring) { c.save(); c.strokeStyle = 'rgba(255,255,255,' + (.6 + .4 * Math.sin(t * 7)) + ')'; c.lineWidth = 3; c.shadowColor = '#fff'; c.shadowBlur = 12; c.beginPath(); c.arc(CX + AW.dx, AW.y, AW.r + 6, 0, 7); c.stroke(); c.restore(); } }   // v061: a white hint ring when the tower is new
+    if (sc.isl) szene(c, CX - SB.dx, SB.y, 'insel', sc, hint, t);
+    if (sc.str) szene(c, CX + SB.dx, SB.y, 'strand', sc, false, t);
+    if (sc.tide) {   // v040: the tide number on a small brass plate between the scene buttons
+      const py = CY + R + 26, txt = 'TIDE ' + sc.tide; c.font = '700 11px Fredoka, sans-serif'; const tw = c.measureText(txt).width + 14;
+      const g = c.createLinearGradient(0, py - 8, 0, py + 8); g.addColorStop(0, '#f3d98a'); g.addColorStop(1, '#a8741e'); c.fillStyle = g; c.beginPath(); c.roundRect(CX - tw / 2, py - 8, tw, 16, 5); c.fill(); c.strokeStyle = '#5a3a0a'; c.lineWidth = 1; c.stroke();
+      c.fillStyle = '#2a1a06'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(txt, CX, py + .5); c.textBaseline = 'alphabetic'; }
+  }
+  return { bau, sichtbar };
+})();
+// ---------- v038: THE HUB bottom left — from the moment the briefcase is found it replaces Ledger, Banyan, Memos and Rules.
+// It grows with you: a brass ring round the briefcase, roots creep over it stage by stage (the briefcase's own story), and with Fi
+// it is her face in a ring of dark wood. Round it: the Wandel band (green spent, gold free, notches = stages, the next one bright),
+// the sight, and below it stamina and befall. Same centre height as the End-ebb compass on the right.
+const NABE = (() => {   // v055: no ring any more — a silhouette of its own (empty outline → the briefcase → Fi, navel up), the buttons round it, three thick bars below; there from tide 1
+  const WW = 232, HH = 250, CX = 116, CY = 92, HR = 21;
+  const SPOTS = [['traum', 38, 52, 'Dream · the upgrades'], ['banyan', 194, 52, 'The banyan'], ['rules', 38, 118, 'Rules'], ['memos', 194, 118, 'Memos']];
+  let el, cv, info, last = '', mask = null;
+  function bau() {
+    el = document.createElement('div'); el.id = 'fiBust';
+    el.innerHTML = '<canvas></canvas><div id="nabeInfo"></div>' + SPOTS.map(([k, , , t]) => '<button data-k="' + k + '" title="' + t + '" aria-label="' + t + '"></button>').join('');
+    document.body.appendChild(el); cv = el.querySelector('canvas'); info = el.querySelector('#nabeInfo');
+    Object.assign(info.style, { left: (CX - 44) + 'px', top: (CY - 62) + 'px', width: '88px', height: '118px', borderRadius: '30%' });
+    SPOTS.forEach(([k, x, y]) => Object.assign(el.querySelector('[data-k="' + k + '"]').style, { left: (x - HR) + 'px', top: (y - HR) + 'px', width: 2 * HR + 'px', height: 2 * HR + 'px' }));
+    el.addEventListener('click', e => { const b = e.target.closest('button[data-k]'); if (b) oeffne(b.dataset.k); });
+    setInterval(tick, 120);
+  }
+  const leer = { fi: false, koffer: false, stufe: 0, omen: false, look: 0, talk: false, memos: false, rules: 0, banyan: false, wandel: 0, wMax: WMAX, frei: 0, freiAlle: 0, sicht: 0, stufeName: '', naechste: null, naechsteName: '', befall: 0, insel: false };
+  const daten = () => SPIEL.inselBereit ? Object.assign({ insel: true }, api('insel').fiInfo()) : Object.assign({}, leer, { koffer: SPIEL.kofferStrand() });   // v062: the briefcase sits in the hub from the moment the beach finds it
+  function offen(k, f) { return k === 'traum' || k === 'rules' || (k === 'banyan' && f.banyan) || (k === 'memos' && f.koffer && f.insel); }
+  function oeffne(k) {
+    const f = daten(); if (!offen(k, f)) return;
+    if (k === 'rules') { SPIEL.regeln(aktiv === 'insel' ? 'insel' : 'surf'); return; }   // v044: one rules screen
+    if (k === 'traum') { api('strand').traumOffen && api('strand').traumOffen(); TRAUM.zeigen(); return; }   // v056: the Dream lies over whatever scene you are in (v062: the tutorial ring goes)
+    const ziel = 'insel';
+    if (!SPIEL.zeige(ziel)) return;
+    const id = { banyan: 'bTree', memos: 'bLedger' }[k], b = W[ziel].$(id); if (b) b.click();
+  }
+  const aktivNabe = () => KOMPASS.sichtbar() && api('strand').ressB().stamp;
+  function tick() {
+    const an = aktivNabe();
+    document.body.classList.toggle('fiUI', !!an); document.body.classList.toggle('nabeAn', !!an);
+    el.style.display = an ? 'block' : 'none'; if (!an) return;
+    const f = daten(), a = api('strand').ausdauer(), led = W.strand.$('ledgerBtn').classList.contains('ready'), t = performance.now() / 1000;
+    info.title = (f.insel ? 'Wandel ' + f.wandel + '/' + f.wMax + ' · ' + f.freiAlle + ' free' + (f.banyan ? ' to teach the banyan' : '') + ' · ' + f.stufeName + (f.naechste ? ' · at ' + f.naechste + ': ' + f.naechsteName : '') + ' · sight ' + f.sicht + '\n' : '') + 'Stamina ' + a.n + '/' + a.max + (f.insel ? ' · Befall ' + f.befall : '');
+    const key = [f.insel, f.fi, f.koffer, f.stufe, f.omen, f.look, f.memos, f.drohung, f.banyan, f.wandel, f.frei, f.sicht, f.befall, a.n, a.max, led, Math.round(t * 8)].join(); if (key === last) return; last = key; draw(f, a, led, t);
+  }
+  function icon(c, k, sock) {   // drawn icons, no emoji
+    c.lineCap = 'round'; c.lineJoin = 'round';
+    if (k === 'traum') {   // v056: a sickle moon and a star
+      c.fillStyle = '#f2d890'; c.beginPath(); c.arc(-2, 1, 10, 0, 7); c.fill(); c.fillStyle = sock; c.beginPath(); c.arc(3, -3, 8.6, 0, 7); c.fill();
+      c.fillStyle = '#fff6dc'; c.beginPath(); c.moveTo(7, -11); c.lineTo(8.3, -7.6); c.lineTo(11.7, -6.3); c.lineTo(8.3, -5); c.lineTo(7, -1.6); c.lineTo(5.7, -5); c.lineTo(2.3, -6.3); c.lineTo(5.7, -7.6); c.closePath(); c.fill(); }
+    else if (k === 'ledger') { c.fillStyle = '#2d6b3a'; c.fillRect(-9, -11, 18, 22); c.fillStyle = '#f3e6c8'; c.fillRect(-6, -7, 12, 2.4); c.fillRect(-6, -2.5, 12, 2.4); c.fillStyle = '#7dff6b'; c.beginPath(); c.arc(0, 5.5, 3, 0, 7); c.fill(); c.strokeStyle = '#173b20'; c.lineWidth = 1.3; c.strokeRect(-9, -11, 18, 22); }
+    else if (k === 'banyan') { c.fillStyle = '#6b4520'; c.fillRect(-2.5, -1, 5, 12); c.strokeStyle = '#6b4520'; c.lineWidth = 1.8; c.beginPath(); c.moveTo(-7, 11); c.lineTo(-7, 3); c.moveTo(7, 11); c.lineTo(7, 3); c.stroke(); c.fillStyle = '#3fae46'; c.beginPath(); c.ellipse(0, -4, 13, 8, 0, 0, 7); c.fill(); c.fillStyle = '#6fd06a'; c.beginPath(); c.ellipse(-4, -6, 6, 3.4, 0, 0, 7); c.fill(); }
+    else if (k === 'memos') { c.fillStyle = '#f3e6c8'; c.fillRect(-11, -7, 22, 15); c.strokeStyle = '#7a5a30'; c.lineWidth = 1.4; c.strokeRect(-11, -7, 22, 15); c.beginPath(); c.moveTo(-11, -7); c.lineTo(0, 2); c.lineTo(11, -7); c.stroke(); c.fillStyle = '#b0351c'; c.beginPath(); c.arc(0, 3.5, 2.8, 0, 7); c.fill(); }
+    else { c.fillStyle = '#f3e6c8'; c.beginPath(); c.moveTo(0, -6); c.quadraticCurveTo(-6, -9.5, -12, -7); c.lineTo(-12, 8); c.quadraticCurveTo(-6, 6, 0, 9.5); c.quadraticCurveTo(6, 6, 12, 8); c.lineTo(12, -7); c.quadraticCurveTo(6, -9.5, 0, -6); c.fill(); c.strokeStyle = '#7a5a30'; c.lineWidth = 1.3; c.stroke(); c.beginPath(); c.moveTo(0, -6); c.lineTo(0, 9.5); c.stroke(); }
+  }
+  const mix = (a, b, u) => { const h = s => [1, 3, 5].map(i => parseInt(s.slice(i, i + 2), 16)), A = h(a), B = h(b); return 'rgb(' + A.map((v, i) => Math.round(v + (B[i] - v) * u)).join(',') + ')'; };
+  function fiBueste(c, f, t) {   // Fi from the navel up, edges fading into the scene — no frame
+    const im = fiBild(f.look); if (!(im.complete && im.naturalWidth)) { im.onload = () => { last = ''; }; return; }
+    const w = 104, h = 112; if (!mask) { mask = document.createElement('canvas'); mask.width = w * 2; mask.height = h * 2; }
+    const m = mask.getContext('2d'); m.setTransform(2, 0, 0, 2, 0, 0); m.globalCompositeOperation = 'source-over'; m.clearRect(0, 0, w, h);
+    m.drawImage(im, 8, 0, 164, 176, 0, 0, w, h);
+    m.globalCompositeOperation = 'destination-in'; const g = m.createLinearGradient(0, h * .55, 0, h); g.addColorStop(0, 'rgba(0,0,0,1)'); g.addColorStop(1, 'rgba(0,0,0,0)'); m.fillStyle = g; m.fillRect(0, 0, w, h);
+    if (f.talk) { c.save(); c.shadowColor = 'rgba(200,255,140,.9)'; c.shadowBlur = 10 + 6 * Math.sin(t * 9); }
+    c.drawImage(mask, CX - w / 2, CY - h / 2 - 4, w, h); if (f.talk) c.restore();
+  }
+  function draw(f, a, led, t) {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2); if (cv.width !== WW * dpr) { cv.width = WW * dpr; cv.height = HH * dpr; }
+    const c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, WW, HH);
+    const wuchs = f.fi ? 1 : Math.min(.85, f.stufe / 3.4 + (f.omen ? .08 : 0));
+    // a soft ground under the group, no ring
+    const sh = c.createRadialGradient(CX, CY + 20, 10, CX, CY + 20, 120); sh.addColorStop(0, 'rgba(8,24,36,.42)'); sh.addColorStop(1, 'rgba(8,24,36,0)'); c.fillStyle = sh; c.fillRect(0, 0, WW, HH);
+    // the silhouette
+    if (f.fi) fiBueste(c, f, t);
+    else if (f.koffer) kofferZeichnen(c, CX, CY + 8, 92, { wurzeln: wuchs, led: f.stufe >= 3 ? (Math.sin(t * 5) > 0 ? 'red' : 'off') : f.talk ? (Math.sin(t * 14) > 0 ? 'green' : 'off') : 'green', t });
+    else {   // something is missing here: a sandy outline of what will come
+      c.save(); c.setLineDash([5, 4]); c.lineWidth = 2; c.strokeStyle = 'rgba(232,210,160,.55)'; c.fillStyle = 'rgba(232,210,160,.08)';
+      c.beginPath(); c.roundRect(CX - 44, CY + 2, 88, 52, 8); c.fill(); c.stroke(); c.beginPath(); c.moveTo(CX - 15, CY + 2); c.quadraticCurveTo(CX, CY - 22, CX + 15, CY + 2); c.stroke(); c.restore();
+      c.fillStyle = 'rgba(232,210,160,.5)'; c.font = '700 26px Fredoka, sans-serif'; c.textAlign = 'center'; c.fillText('?', CX, CY + 38); }
+    // the sight: a small eye in the top corner of the group, away from the bars (island only)
+    if (f.insel) { c.save(); c.translate(CX, 12); c.fillStyle = 'rgba(8,24,36,.75)'; c.beginPath(); c.ellipse(0, 0, 13, 8, 0, 0, 7); c.fill();
+      c.strokeStyle = '#d9f5c8'; c.lineWidth = 1.3; c.beginPath(); c.moveTo(-8, 0); c.quadraticCurveTo(0, -6.5, 8, 0); c.quadraticCurveTo(0, 6.5, -8, 0); c.stroke(); c.fillStyle = '#d9f5c8'; c.beginPath(); c.arc(0, 0, 2.4, 0, 7); c.fill();
+      c.font = '700 9px Fredoka, sans-serif'; c.textAlign = 'left'; c.fillText(String(f.sicht), 15, 3); c.restore(); }
+    // the four buttons, fixed places from tide 1; not yet there = an empty dark socket
+    SPOTS.forEach(([k, x, y]) => { const on = offen(k, f);
+      const hot = on && ((k === 'traum' && led) || (k === 'memos' && f.memos));   // v061: no glow for unread rules
+      if (hot) { const h = c.createRadialGradient(x, y, HR * .6, x, y, HR + 9); h.addColorStop(0, 'rgba(200,255,140,.75)'); h.addColorStop(1, 'rgba(200,255,140,0)'); c.fillStyle = h; c.beginPath(); c.arc(x, y, HR + 9, 0, 7); c.fill(); }
+      if (k === 'banyan' && on && f.insel && f.drohung !== undefined) { const segs = 5, gap = .07, a0 = Math.PI * .62, span = Math.PI * 1.76, cols = ['#6fc35a', '#d6e04a', '#ffa53a', '#ff6a3a', '#e0284a'];   // v061: the threat ring — calm … near defeat
+        for (let i = 0; i < segs; i++) { const s0 = a0 + span * i / segs + gap / 2, s1 = a0 + span * (i + 1) / segs - gap / 2, lit = i <= f.drohung; c.strokeStyle = lit ? cols[i] : 'rgba(255,255,255,.14)'; c.lineWidth = lit ? 5 : 3; if (lit && i === f.drohung && i >= 3) { c.shadowColor = cols[i]; c.shadowBlur = 8 + 4 * Math.sin(t * 6); } c.beginPath(); c.arc(x, y, HR + 6, s0, s1); c.stroke(); c.shadowBlur = 0; } }
+      c.fillStyle = 'rgba(0,0,0,.35)'; c.beginPath(); c.arc(x, y + 2, HR + 1, 0, 7); c.fill();
+      const rim = c.createRadialGradient(x - HR * .3, y - HR * .4, 2, x, y, HR); rim.addColorStop(0, mix('#fff0b8', '#7a5a38', wuchs)); rim.addColorStop(.55, mix('#d9a441', '#4a3220', wuchs)); rim.addColorStop(1, mix('#8a5a14', '#24160a', wuchs));
+      c.globalAlpha = on ? 1 : .45; c.fillStyle = rim; c.beginPath(); c.arc(x, y, HR, 0, 7); c.fill();
+      c.fillStyle = f.fi ? '#0c1a10' : mix('#183444', '#0f2216', wuchs); c.beginPath(); c.arc(x, y, HR - 4, 0, 7); c.fill(); c.globalAlpha = 1; if (hot) { c.strokeStyle = '#c8ff6a'; c.lineWidth = 2; c.stroke(); }
+      if (on) { c.save(); c.translate(x, y); icon(c, k, f.fi ? '#0c1a10' : mix('#183444', '#0f2216', wuchs)); c.restore(); }
+      if (k === 'rules' && f.rules > 0) { c.fillStyle = '#d9a441'; c.beginPath(); c.arc(x + 15, y - 15, 8, 0, 7); c.fill(); c.fillStyle = '#1a1206'; c.font = '700 11px Fredoka, sans-serif'; c.textAlign = 'center'; c.fillText(String(f.rules), x + 15, y - 11); } });
+    // three thick bars: stamina, Wandel, befall (Wandel and befall wait dark until the island opens)
+    const x0 = 34, bw = 160, bh = 11;
+    const bar = (y, frac, col, glyph, txt, on) => { c.fillStyle = 'rgba(8,24,36,.8)'; c.beginPath(); c.roundRect(x0 - 24, y - 10, bw + 56, 20, 10); c.fill();
+      c.fillStyle = 'rgba(255,255,255,' + (on ? .16 : .07) + ')'; c.beginPath(); c.roundRect(x0, y - bh / 2, bw, bh, 5); c.fill();
+      if (on && frac > 0) { c.fillStyle = col; c.beginPath(); c.roundRect(x0, y - bh / 2, Math.max(bh, bw * Math.min(1, frac)), bh, 5); c.fill(); }
+      c.save(); c.translate(x0 - 12, y); c.globalAlpha = on ? 1 : .35; glyph(); c.restore();
+      c.fillStyle = on ? '#fff6e3' : 'rgba(255,246,227,.35)'; c.font = '700 11px Fredoka, sans-serif'; c.textAlign = 'left'; c.fillText(txt, x0 + bw + 5, y + 4); };
+    const y1 = 164, y2 = 190, y3 = 216;
+    bar(y1, a.n / Math.max(1, a.max), '#ff9f43', () => { c.fillStyle = '#ffb347'; c.beginPath(); c.moveTo(2, -7); c.lineTo(-4, 1.5); c.lineTo(0, 1.5); c.lineTo(-2, 7); c.lineTo(4, -1.5); c.lineTo(0, -1.5); c.closePath(); c.fill(); }, String(a.n), true);
+    // Wandel: green = spent, gold = free, notches = stages (the next one bright)
+    bar(y2, 0, '#6fc35a', () => { c.strokeStyle = '#ffd45a'; c.lineWidth = 2; c.beginPath(); for (let i = 0; i < 18; i++) { const an = i * .6, r = 1 + i * .35; c.lineTo(Math.cos(an) * r, Math.sin(an) * r); } c.stroke(); }, f.insel ? String(f.freiAlle) : '–', f.insel);
+    if (f.insel && f.wandel > 0) { const per = bw / f.wMax, gw = f.wandel - f.frei; c.save(); c.beginPath(); c.roundRect(x0, y2 - bh / 2, bw, bh, 5); c.clip();
+      if (gw > 0) { c.fillStyle = '#6fc35a'; c.fillRect(x0, y2 - bh / 2, gw * per, bh); }
+      if (f.frei > 0) { c.fillStyle = '#ffd45a'; c.fillRect(x0 + gw * per, y2 - bh / 2, f.frei * per, bh); }
+      c.strokeStyle = 'rgba(255,255,255,.5)'; c.lineWidth = 2; c.setLineDash([3, 9]); c.lineDashOffset = -t * 14; c.beginPath(); c.moveTo(x0, y2); c.lineTo(x0 + f.wandel * per, y2); c.stroke(); c.setLineDash([]); c.restore(); }
+    if (f.insel) STAGES.slice(1).map(x => x[0]).forEach(v => { if (v >= f.wMax) return; const nx = f.naechste === v, xx = x0 + v * bw / f.wMax; c.strokeStyle = nx ? '#fff' : 'rgba(10,40,60,.9)'; c.lineWidth = nx ? 2.6 : 1.8; if (nx) { c.shadowColor = '#fff'; c.shadowBlur = 6; } c.beginPath(); c.moveTo(xx, y2 - 8); c.lineTo(xx, y2 + 8); c.stroke(); c.shadowBlur = 0; });
+    bar(y3, f.befall / 12, f.befall >= 8 ? '#ff6a4a' : f.befall >= 5 ? '#d6e04a' : '#7ad84a', () => { c.fillStyle = '#9be04a'; [[-3, -2.5], [2.5, -3], [0, 3], [-3.5, 3.5], [3.5, 2.5]].forEach(([x, y], i) => { c.beginPath(); c.arc(x, y, i < 3 ? 2.2 : 1.4, 0, 7); c.fill(); }); }, f.insel ? String(f.befall) : '–', f.insel);
+  }
+  return { bau };
+})();
+// v038: the briefcase, drawn once for the hub and for the night it opens: leather, brass clasps, the satellite module with its LED.
+// o: { wurzeln 0..1 roots over it, led 'green'|'red'|'off'|'white', deckel 0..1 the lid swinging open, t }
+export function kofferZeichnen(c, x, y, w, o) {
+  o = o || {}; const h = w * .62, x0 = x - w / 2, yt = y - h / 2, lidH = h * .34, seam = yt + lidH, th = Math.min(1, o.deckel || 0) * Math.PI * .62, ce = Math.cos(th), edge = yt + lidH * ce;
+  c.save(); c.lineJoin = 'round'; c.lineCap = 'round';
+  const leder = (y0, y1) => { const g = c.createLinearGradient(x0, 0, x0 + w, 0); g.addColorStop(0, '#5e341a'); g.addColorStop(.5, '#8f5630'); g.addColorStop(1, '#5e341a'); return g; };
+  // base
+  c.fillStyle = leder(); c.beginPath(); c.roundRect(x0, seam, w, h - lidH, [0, 0, w * .06, w * .06]); c.fill(); c.strokeStyle = '#3a1f0c'; c.lineWidth = Math.max(1, w * .02); c.stroke();
+  c.strokeStyle = 'rgba(232,199,154,.7)'; c.lineWidth = Math.max(.6, w * .008); c.setLineDash([w * .03, w * .025]); c.beginPath(); c.roundRect(x0 + w * .04, seam + h * .06, w * .92, h - lidH - h * .12, w * .04); c.stroke(); c.setLineDash([]);
+  if (o.deckel > 0) {   // inside: dark, then the light coming out
+    c.fillStyle = '#0f2a16'; c.fillRect(x0 + w * .03, seam - 1, w * .94, h * .07);
+    const gl = c.createRadialGradient(x, seam, 0, x, seam - h * .4, w * .9); gl.addColorStop(0, 'rgba(220,255,160,' + .85 * o.deckel + ')'); gl.addColorStop(1, 'rgba(220,255,160,0)'); c.fillStyle = gl; c.beginPath(); c.arc(x, seam - h * .3, w * .9, 0, 7); c.fill();
+  }
+  // lid: front face while it still faces you, then its green lining above the hinge
+  if (ce > 0) { c.fillStyle = leder(); c.beginPath(); c.roundRect(x0, Math.min(yt, edge), w, Math.max(1, Math.abs(seam - yt) * ce), [w * .06, w * .06, 0, 0]); c.fill(); c.strokeStyle = '#3a1f0c'; c.lineWidth = Math.max(1, w * .02); c.stroke(); }
+  else { const hh = -lidH * ce; c.fillStyle = '#2f6b3a'; c.beginPath(); c.roundRect(x0 + w * .02, yt - hh, w * .96, hh, [w * .05, w * .05, 0, 0]); c.fill(); c.strokeStyle = '#3a1f0c'; c.lineWidth = Math.max(1, w * .02); c.stroke(); }
+  if (!(o.deckel > .25)) {
+    const lift = (seam - yt) * (1 - ce);
+    c.strokeStyle = '#3a1f0c'; c.lineWidth = w * .06; c.beginPath(); c.moveTo(x - w * .17, yt + 1 - lift); c.quadraticCurveTo(x, yt - h * .42 - lift, x + w * .17, yt + 1 - lift); c.stroke();   // handle
+    c.strokeStyle = '#7a4524'; c.lineWidth = w * .03; c.stroke();
+    [-1, 1].forEach(s => { c.fillStyle = '#d4a017'; c.strokeStyle = '#8a6a0a'; c.lineWidth = Math.max(.8, w * .012); c.beginPath(); c.roundRect(x + s * w * .3 - w * .055, seam - h * .07 - lift, w * .11, h * .14, w * .02); c.fill(); c.stroke(); });   // clasps
+    c.fillStyle = '#2b2b2b'; c.beginPath(); c.roundRect(x + w * .33, yt + h * .04 - lift, w * .14, h * .14, w * .02); c.fill();   // the satellite module
+    c.strokeStyle = '#9a9a9a'; c.lineWidth = Math.max(.8, w * .012); c.beginPath(); c.moveTo(x + w * .44, yt + h * .04 - lift); c.lineTo(x + w * .47, yt - h * .12 - lift); c.stroke();
+    const lc = { green: '#39e639', red: '#ff3b2a', white: '#ffffff' }[o.led]; if (lc) { c.fillStyle = lc; c.shadowColor = lc; c.shadowBlur = w * .08; c.beginPath(); c.arc(x + w * .37, yt + h * .11 - lift, w * .022, 0, 7); c.fill(); c.shadowBlur = 0; }
+  }
+  // roots: from below, over the front and round the handle
+  const n = Math.round((o.wurzeln || 0) * 8);
+  for (let i = 0; i < n; i++) { const s = i % 2 ? 1 : -1, bx = x + s * w * (.12 + (i >> 1) * .1), top = y + h / 2 - h * (.35 + .15 * (i % 3)) * (o.wurzeln || 0) * 1.4;
+    c.strokeStyle = i % 3 ? '#4a3220' : '#6e4a2a'; c.lineWidth = Math.max(1, w * (.035 - i * .002)); c.beginPath(); c.moveTo(bx + s * w * .08, y + h / 2 + h * .08); c.bezierCurveTo(bx, y + h * .3, bx - s * w * .1, top + h * .2, bx - s * w * .04, top); c.stroke(); }
+  c.restore();
+}
+// ---------- v040: ONE resource row for both scenes — only what buys something, each with an explanation (hover; tap on a phone) ----------
+export const RESS = {
+  liste() {
+    const b = api('strand').ressB(), i = SPIEL.inselBereit ? api('insel').ressI() : null;
+    return [
+      { k: 'green', t: '💚 ' + b.green, on: b.stamp, tip: 'Green blood: the currency of beach and island. It buys upgrades in your Dream, the beach tower and work on the island.' },
+      { k: 'tails', t: '🐟 ' + b.tails, on: b.tails > 0 || b.team, tip: 'Fish tails: from the rot minnows under the board (and from the cat\'s own catches). They buy her upgrades in your Dream.' },
+      { k: 'rum', t: '🥃 ' + b.rum, on: b.rum > 0 || b.bar, tip: 'Rum: it washes up with the tide. Give it to the tortoise on the beach.' },
+      { k: 'wandel', t: '🌀 ' + (i ? i.wFree : 0), on: !!i && i.wandel > 0, cls: 'gold', tip: 'Free Wandel: what you can teach the banyan with (and, one day, the Dark-Wood Elf). You gain Wandel by changing: acting on the island, befriending it.' },
+      { k: 'fruit', t: '🍞 ' + (i ? i.fruit : 0) + (i && i.fruitNext ? ' <small class="nx">+' + i.fruitNext + '</small>' : ''), on: !!i && (i.fruit > 0 || i.fruitNext > 0), tip: 'Breadfruit: your roots harvest it — +1 per rooted breadfruit tile every flood, +1 more if it is protected (the small number: next flood). The gecko wants 4, then 5.' },
+      { k: 'coco', t: '🥥 ' + (i ? i.coco : 0) + (i && i.cocoNext ? ' <small class="nx">+' + i.cocoNext + '</small>' : ''), on: !!i && (i.coco > 0 || i.cocoNext > 0), tip: 'Coconuts: your roots harvest them — +1 per rooted palm tile every flood, +1 if protected (the small number: next flood). The gecko wants 2.' },
+      { k: 'cat', t: b.pet ? '🐈✓' : '🐈♥', on: b.catOn, cls: b.pet ? 'used' : 'cat', tip: b.pet ? 'The cat had her cuddle this tide. Back next tide.' : 'The cat: long-press her on the beach once per tide for +1 stamina.' }
+    ].filter(x => x.on);
+  },
+  html() { const q = s => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;'); return this.liste().map(x => '<span class="rs ' + (x.cls || '') + '" data-tip="' + q(x.tip) + '" title="' + q(x.tip) + '">' + x.t + '</span>').join(''); },
+  tipp(el) {
+    let b = document.getElementById('ressTip'); if (!b) { b = document.createElement('div'); b.id = 'ressTip'; document.body.appendChild(b); }
+    const r = el.getBoundingClientRect(); b.textContent = el.dataset.tip; b.style.left = Math.max(8, Math.min(innerWidth - 268, r.left)) + 'px'; b.style.top = (r.bottom + 6) + 'px'; b.style.display = 'block';
+    clearTimeout(this._t); this._t = setTimeout(() => { b.style.display = 'none'; }, 2800);
+  }
+};
+document.addEventListener('pointerdown', e => { const r = e.target.closest && e.target.closest('.rs[data-tip]'); if (r && e.pointerType !== 'mouse') RESS.tipp(r); }, true);
+// ---------- v044: ONE rules screen for the whole game — "Surf controls" and "Island rules" (opens from the beach, the island and the hub) ----------
+const REGELN = {
+  el: null, open: false, tab: 'surf', sel: { surf: 'ride', insel: null },
+  bau() {
+    const e = this.el = document.createElement('div'); e.id = 'regeln';
+    e.innerHTML = '<div class="rbox"><button id="rgClose" aria-label="Close">✕</button><div id="rgTop"><button data-t="surf">🏄 Surf controls</button><button data-t="insel">🗺 Island rules</button></div><div class="rgMain"><div id="rgTabs"></div><div id="rgBody"></div></div></div>';
+    document.body.appendChild(e);
+    e.addEventListener('click', ev => {
+      if (ev.target === e || ev.target.id === 'rgClose') return this.zu();
+      const t = ev.target.closest('#rgTop button'); if (t && !t.disabled) { this.tab = t.dataset.t; return this.render(); }
+      const c = ev.target.closest('#rgTabs button'); if (c && !c.disabled) { this.sel[this.tab] = c.dataset.r; this.render(); }
+    });
+  },
+  zeigen(tab) { if (!this.el) this.bau(); if (tab) this.tab = tab; if (this.tab === 'insel' && !SPIEL.inselBereit) this.tab = 'surf'; this.open = true; this.el.style.display = 'flex'; this.render(); },
+  zu() { if (this.el) this.el.style.display = 'none'; this.open = false; },
+  render() {
+    const e = this.el, insel = SPIEL.inselBereit;
+    e.querySelectorAll('#rgTop button').forEach(b => { b.classList.toggle('on', b.dataset.t === this.tab); b.disabled = b.dataset.t === 'insel' && !insel; b.title = b.disabled ? 'Opens with the island map' : ''; });
+    let v;
+    if (this.tab === 'insel') v = api('insel').regeln(this.sel.insel);
+    else v = surfRegeln(this.sel.surf);
+    if (this.tab === 'insel') this.sel.insel = (v.tabs.find(x => x.sel) || {}).id || null;
+    e.querySelector('#rgTabs').innerHTML = v.tabs.map(r => '<button data-r="' + r.id + '" class="' + (r.sel ? 'on' : '') + '"' + (r.on ? '' : ' disabled') + '>' + r.title + '</button>').join('');
+    e.querySelector('#rgBody').innerHTML = v.body; e.querySelector('#rgBody').scrollTop = 0;
+    if (v.draw) v.draw(e.querySelector('#rgBody'));
+  }
+};
+// a little phone: which half to hold (H) or tap (T), and what happens
+function regelPhone(l, r, cap, extra) {
+  const half = (x, k, txt) => '<rect x="' + x + '" y="6" width="58" height="62" rx="4" fill="' + (k === 'H' ? '#2f7f6f' : k === 'T' ? '#e9b52f' : k === 'Z' ? '#8fd0dc' : '#efe2c2') + '"/>' + (txt ? '<text x="' + (x + 29) + '" y="42" text-anchor="middle" font-size="11" font-weight="700" fill="' + (k ? '#fff' : '#9a8a6a') + '">' + txt + '</text>' : '');
+  return '<svg width="290" height="78" viewBox="0 0 290 78"><rect x="2" y="2" width="124" height="70" rx="9" fill="#3b2a1a"/>' + half(6, l[0], l[1]) + half(66, r[0], r[1]) + (extra || '') +
+    '<text x="138" y="30" font-size="13" font-weight="600" fill="#3b2a1a">' + cap[0] + '</text><text x="138" y="50" font-size="12" fill="#7a5a32">' + (cap[1] || '') + '</text></svg>';
+}
+function surfRegeln(sel) {
+  const st = api('strand').surfStand ? api('strand').surfStand() : { flood: 1, jump: 0, cycle: 0, void: 0, cat: 0, board: 0, tower: 0 };
+  const C = [
+    { id: 'ride', title: 'Riding the wave', at: 2, ill: '',
+      text: '<p>Robinson surfs by himself, at the tempo of the stage. The NOTAX stamp fires by itself at the nearest monster; every hit splashes ink onto the ones around it.</p><p><b>Green hearts</b> are 💚 — every heart is one (a soft <i>blubb</i>). Every kill drops a heart that lands on the wave. Hearts you fly past drift away behind you — gone. A <b>giant heart</b> (from stage 5, high on Backflip arcs) is worth 25. The red <b>magnet</b> (Heart Magnet) pulls hearts to you for 20 s.</p><p>A <b>gold diamond</b> gives +1 stamina for this run. A loss costs nothing but the run: you wake with half your stamina. Lost the first fight? Open the Ledger — Faster Stamping or Wider Splash.</p>' },
+    { id: 'jump', title: 'Jump — tap D', at: 2, ill: regelPhone(['', ''], ['T', 'TAP'], ['Tap D or the right half', 'as you ride up a mussel']),
+      text: '<p><b>Tap D</b> (or the right half) as you come up to a mussel — the red <b>D</b> sign glows: a <b>big jump</b>. The mussel dies and you lose nothing. In the air the <b>underside of your board is a weapon</b>: whatever it touches dies and you bounce up off it. Your body is not — fly into a monster with it and it hurts.</p><p>No tap: a small hop — the mussel still dies, but it costs <b>1 stamina</b>. A tap with no mussel near: a little hop, nothing more.</p>' },
+    { id: 'boost', title: 'Boost and combos', at: 3, ill: '',
+      text: '<p>Every jump off a mussel is a <b>combo</b>: you get a <b>boost</b> — faster, for a fixed stretch. Jump again before it runs out and it starts over. Flawless = flow the whole way.</p><p>Any hit ends the boost and the combo.</p>' },
+    { id: 'tricks', title: 'Nosegrab and Backflip', at: 4, ill: '',
+      text: '<p>How you fly depends on your tempo and on the wave where you take off. <b>Nosegrab</b> (from stage 4): with boost, or on a steep spot — higher and further. <b>Backflip</b> (from stage 5): boost <i>and</i> a steep spot.</p><p>From a Nosegrab on, <b>the next mussel surfaces exactly where you land</b>. Tap D again as you come down on it: the chain goes on — big jumps keep you high on the steep part of the face, so Backflips come in chains.</p><p>In a <b>Nosegrab</b> the nose of the board is a weapon too; in a <b>Backflip</b> all of you is.</p>' },
+    { id: 'cycle', title: 'Wall Leap — tap A', at: 8, ill: regelPhone(['T', 'TAP'], ['', ''], ['Tap A or the left half', 'when the wall comes (green A)']),
+      text: '<p>A green <b>wall of monsters</b> swims at you, faster than the water — and the wave throws your followers (the black wake lice) ahead. A green <b>A</b> sign swims at you ahead of the wall: <b>tap A</b> (or the left half) <b>the moment you pass it</b> — it says TAP, and the wall is just coming into view:</p><p>the boomerang flies <b>back</b> · you climb · you <b>leap over the wall</b> and dive where the thrown ones came down. The wall passes under you; in the air you cannot be hurt and every touch is a kill.</p><p>A small <b>herald</b> swims just behind the sign — one stamp takes it. The window opens the moment the sign touches you and lasts at least a third of a second; the faster the stage, the earlier the sign comes.</p><p>The whole leap is the combo: <b>nothing can hurt you, all of you is a weapon</b>, and it goes as high as the tower is tall. In a boss fight a good A lands you <b>right on top of him</b> (BOSS SLAM).</p><p>Too early: you land in the wall (the cat asks “mrrp?”). Too late: it hits you (“MAU!”).</p>' },
+    { id: 'void', title: 'VOID — the life-saver', at: 6, need: st.void ? '' : 'Buy it in your Dream (from stage 6).', ill: '',
+      text: '<p>VOID drinks the <b>hearts</b> you collect (the ring next to your hearts). When your stamina would hit 0, it fires by itself: <b>30 % stamina back</b>, root lightning from kill to kill, and a flood that washes your followers away. It also pulls you out of a crevasse. It charges again from the next 40 hearts (Quick Charge: fewer).</p>' },
+    { id: 'boss', title: 'The First Mate', at: 10, ill: '',
+      text: '<p>He rides ahead of you and throws pages. Every third attack he winds up (a red ring and "!") and slams a <b>shockwave</b> up the face: hop over it (D) or dash-dive under it (A). If it misses, he glows — he is <b>open</b> and takes double damage. A good A leap lands right on him.</p>' },
+    { id: 'glide', title: 'Glider — hold D', at: 11, need: st.glide ? '' : 'A gift with your first fight on the island (nest or den).', ill: regelPhone(['', ''], ['H', 'HOLD'], ['Hold D or the right half', 'in the air']),
+      text: '<p><b>Hold D</b> (or the right half) in the air: a palm-leaf canopy opens and you <b>glide</b> — up to 2 s (Long Glide: longer). The cat glides with you on her board.</p><p>It works on the beach too, once you have it.</p>' },
+    { id: 'gap', title: 'Crevasses in the scree', at: 11, ill: '',
+      text: '<p>In the nest and in his den the wave runs over rotten <b>scree</b>, with <b>crevasses</b> (amber sign: GAP). Early ones: a free jump (D) clears them. Wider ones: jump from the mussel in front. The widest: only the <b>glider</b> gets you across.</p><p>Falling in costs <b>all your stamina</b> — only a charged VOID saves you. Monsters keep clear of the crevasses.</p>' },
+    { id: 'flame', title: 'Flamethrower — hold A', at: 11, need: st.flame ? '' : 'A gift with your first army fight.', ill: regelPhone(['H', 'HOLD'], ['', ''], ['Hold A or the left half', 'while you climb']),
+      text: '<p>Against the Board\'s <b>army</b>: keep <b>A held</b> through the boomerang and the climb — a colourful flame burns into the wall in front of you, as long as you hold. Hotter Flames burns harder. Armies bring more, bigger and tougher walls.</p><p>It works on the beach walls too, once you have it.</p>' },
+    { id: 'cat', title: 'The cat', at: 1, ill: '',
+      text: '<p>She rides on your head and warns you: <b>ears flat</b> — danger ahead; <b>green eyes</b> — prey; <b>looking back</b> — wasps from behind. With <b>Fishing Dive</b> she leaps after a rot minnow once a fight (a sure fish tail 🐟); with <b>Her Own Board</b> she surfs in your wake and dives again and again.</p>' },
+    { id: 'tides', title: 'Tides — your time', at: 1, ill: '',
+      text: '<p>Every low tide gives you a number of <b>tides</b> (the cyan waves round the End-ebb compass, bottom right). Each action on the beach costs one: a coconut, a sip from the pool, a crab, a visit to the palm forest. You won\'t manage everything — <b>choose</b>.</p><p>When they are spent, nothing happens until you tap <b>Wait for the tide ⏭</b> (later: <b>End ebb</b>). You start with <b>3</b>; finding out more about the island earns more — the stamp, the palm forest, Crusoe\'s first note, his bark map, and the island itself: up to <b>8</b>.</p>' },
+    { id: 'tower', title: 'The beach tower', at: 1, only: !!st.tower, ill: '',   // v062: only once the tower stands
+
+      text: '<p>The right wheel on the End-ebb compass: <b>tap once — Silver</b>: at the start of every ebb the tower does the beach chores — catching crabs, drinking coconuts, rum for the tortoise — and pays for each with one of your beach tides (never a spring tide). <b>Tap again — Gold</b> (Tower II): it also rides the stage for you — up to two stages past the last one you rode yourself — at about 70 % of your usual haul. <b>Tap again — off.</b> Bosses are always yours.</p>' },
+  ];
+  const ok = c => st.flood >= c.at && c.only !== false;
+  const tabs = C.filter(c => c.only !== false).map(c => ({ id: c.id, title: (ok(c) ? c.title : '? ? ?'), on: ok(c), sel: false }));
+  let c = C.find(x => x.id === sel && ok(x)) || C.find(ok) || C[0]; tabs.find(t => t.id === c.id).sel = true;
+  const body = '<div class="by">🐢 The tortoise explains · from stage ' + c.at + '</div><h2>' + c.title + '</h2>' + (c.ill ? '<div class="ill">' + c.ill + '</div>' : '') + c.text + (c.need ? '<p class="need">' + c.need + '</p>' : '');
+  return { tabs, body };
+}
+// ---------- v036: the flood report — a short summary at the end of every flood, wherever you are ----------
+const FLUTBERICHT = {
+  el: null,
+  zeigen() {
+    if (!this.el) { const d = document.createElement('div'); d.id = 'flutBer'; document.body.appendChild(d); d.onclick = () => d.style.display = 'none'; this.el = d; }
+    const b = api('strand').bilanz(), m = this.inselBereit === false ? {} : (SPIEL.inselBereit ? api('insel').bilanz() : {}), L = [];
+    if (m.island_fight) L.push('⚔ ' + m.island_fight);
+    if (b.result) L.push('🏖 ' + b.result + (b.kills ? ' · ' + b.kills + ' monsters' : ''));
+    if (m.strikes) L.push('🟣 rot: ' + m.strikes);
+    if (m.rot_tiles !== undefined && m.rot_tiles !== '') L.push('rot tiles ' + m.rot_tiles + (m.nests !== undefined ? ' · nests ' + m.nests : ''));
+    if (b.tower) L.push(b.tower);   // v061: what the tower did at the start of this ebb
+    L.push('💚 ' + b.green);
+    this.el.innerHTML = '<b>Flood report · now tide ' + api('strand').tag() + '</b><br>' + L.join('<br>');
+    this.el.style.display = 'block'; clearTimeout(this.t); this.t = setTimeout(() => { this.el.style.display = 'none'; }, 5000);
+  }
+};
+// ---------- v036: ONE cat window for the whole game (both worlds open it; a jump goes where the code belongs, otherwise you return where you were) ----------
+const KATZE = {
+  open: false, seq: [], code: null, fx: [], react: null, t: 0, opts: {}, el: null,
+  bau() {
+    const d = document.createElement('div'); d.id = 'kzScr';
+    d.innerHTML = '<canvas id="kzCv"></canvas><button id="kzClose">✕</button><div class="kzsave"><button id="kzSave" title="Copy the save file">💾 Save</button><button id="kzLoad" title="Load a save file">📂 Load</button><button id="kzLog" title="Copy the test log (CSV)">📊 Test log</button></div>' +
+      '<h2>The cat would like some attention</h2><div class="kzsub" id="kzSub"></div><div id="kzMsg"></div><div id="kzAsk"><span id="kzTxt"></span><button id="kzGo">Go</button><button id="kzNo">No</button></div>';
+    document.body.appendChild(d); this.el = d;
+    const $ = id => document.getElementById(id);
+    $('kzClose').onclick = () => this.zu();
+    $('kzSave').onclick = () => SPIEL.speichernManuell(ok => { $('kzSub').textContent = ok ? '💾 The tortoise\'s logbook is on the clipboard.' : 'Copy failed.'; });
+    $('kzLoad').onclick = () => { this.zu(); SPIEL.ladenDialog(); };
+    $('kzLog').onclick = () => SPIEL.testLogKopieren(ok => { $('kzSub').textContent = ok ? '📊 The test log is on the clipboard.' : 'Copy failed.'; });
+    $('kzNo').onclick = () => { this.code = null; this.seq = []; $('kzAsk').style.display = 'none'; $('kzSub').textContent = 'Pet her. She has opinions about where.'; };
+    $('kzGo').onclick = () => { const k = this.code; this.zu(true); if (!k) return;
+      if (PET_CODES_STRAND[k]) { SPIEL.zeige('strand', { force: true }); api('strand').sprung(k); return; }
+      if (api('strand').aufTitel()) api('strand').sprung('T14');   // v037: an island code from the title screen first starts a game (the title cat knows all codes)
+      api('insel').sprung(k); };
+    $('kzCv').addEventListener('pointerdown', e => this.tipp(e));
+  },
+  // o: { bonus: 'gained'|'used'|'full'|null, onClose }
+  zeigen(o) {
+    if (!this.el) this.bau(); this.opts = o || {}; const $ = id => document.getElementById(id);
+    audioInit(); SOUND.szene('strand');   // her purr and mew live on the beach bus
+    Object.assign(this, { open: true, seq: [], code: null, fx: [], react: null });
+    this.el.style.display = 'block'; $('kzAsk').style.display = 'none'; $('kzSub').textContent = 'Pet her. She has opinions about where.';
+    const m = $('kzMsg'), b = this.opts.bonus; m.className = ''; m.style.display = b ? 'block' : 'none';
+    if (b === 'gained') { m.textContent = '💛 She purrs. +1 Stamina — once every tide'; m.className = 'gain'; SFX.purr(); setTimeout(() => SFX.cat('happy'), 350);
+      const cv = $('kzCv'); for (let i = 0; i < 14; i++) this.fx.push({ x: cv.clientWidth * (.35 + Math.random() * .3), y: cv.clientHeight * (.45 + Math.random() * .3), txt: i % 3 ? '♥' : '+1', col: i % 3 ? '#ff9a8a' : '#ffb347', t: performance.now() / 1000 + i * .05 }); }
+    else if (b === 'used') { m.textContent = 'She had her cuddle this tide. Come back next tide.'; SFX.cat('mrrp'); }
+    else if (b === 'full') { m.textContent = 'You are full of energy. She will save the purr for later.'; SFX.cat('mrrp'); }
+    else SFX.cat('mrrp');
+    requestAnimationFrame(t => this.frame(t));
+  },
+  zu(jump) { if (!this.open) return; this.open = false; this.el.style.display = 'none'; SOUND.szene(aktiv); if (!jump && this.opts.onClose) this.opts.onClose(); },
+  codes() { return Object.assign({}, PET_CODES_STRAND, PET_CODES_INSEL); },   // v037: all eight everywhere, also on the title screen
+  tipp(e) {
+    e.preventDefault(); if (this.code) return; const $ = id => document.getElementById(id), cv = $('kzCv'), b = cv.getBoundingClientRect(), lx = e.clientX - b.left, ly = e.clientY - b.top;
+    const best = api('strand').katzenSzene.hit(cv.clientWidth, cv.clientHeight, lx, ly); if (!best) return;
+    const ok = best !== 'belly'; this.react = { zone: best, ok, t: this.t };
+    if (!ok) { this.seq = []; SFX.cat('hiss'); this.fx.push({ x: lx, y: ly, txt: '💢', col: '#ff6a5a', t: this.t }); $('kzSub').textContent = 'Not the belly. Never the belly.'; return; }
+    if (best === 'bg') this.fx.push({ x: lx, y: ly, txt: '·', col: '#bfe8ff', t: this.t }); else { SFX.purr(); this.fx.push({ x: lx, y: ly, txt: '♥', col: '#ff9a8a', t: this.t }); }
+    this.seq.push(best); if (this.seq.length > 5) this.seq.shift();
+    $('kzSub').textContent = 'Purr' + '.'.repeat(this.seq.filter(z => z !== 'bg').length);
+    const C = this.codes();
+    for (const k in C) { const q = C[k].seq; if (this.seq.slice(-q.length).join() === q.join()) {
+      this.code = k; SFX.cat('happy'); $('kzTxt').textContent = 'She shows you a shortcut: skip to ' + C[k].label + '? (replaces your progress)'; $('kzAsk').style.display = 'flex'; break; } }
+  },
+  frame(ms) {
+    if (!this.open) return;
+    const cv = document.getElementById('kzCv'), w = cv.clientWidth, h = cv.clientHeight, dpr = Math.min(window.devicePixelRatio || 1, 2);
+    if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+    const c = cv.getContext('2d'), t = ms / 1000; c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const r = this.react, mood = r && r.zone !== 'bg' && t - r.t < 1.2 ? (r.ok ? 'happy' : 'angry') : '';
+    api('strand').katzenSzene.draw(c, w, h, { t, mood, ring: r ? { zone: r.zone, ok: r.ok, age: t - r.t } : null });
+    c.textAlign = 'center'; c.font = '600 ' + Math.max(16, h * .03) + 'px Fredoka, sans-serif';
+    this.fx.forEach(f => { const a = 1 - (t - f.t) / 1.2; if (a <= 0) return; c.globalAlpha = a; c.fillStyle = f.col; c.fillText(f.txt, f.x, f.y - (t - f.t) * 40); });
+    c.globalAlpha = 1; this.fx = this.fx.filter(f => t - f.t < 1.2); this.t = t;
+    requestAnimationFrame(t2 => this.frame(t2));
+  }
+};
+setTimeout(() => { KOMPASS.bau(); NABE.bau(); if (SPIEL.tester) SPIEL.testerAn(); }, 0);
+function baueDialog(onLoad) {
+  const d = document.createElement('div'); d.id = 'svScr';
+  d.innerHTML = '<div class="svbox"><h2>Load a saved moment</h2><p>Paste the tortoise\'s logbook (💾 copies it), or a test log (📊) or a single row of one. Each row is the start of that tide; the last one is used unless you give a tide. Old beach and island saves work too.</p><textarea id="svTxt" spellcheck="false" placeholder="save_v,game,module,tide,…"></textarea><div class="svrow"><label>Tide <input id="svTide" type="number" min="1" placeholder="last"></label><span id="svMsg"></span><button id="svNo">Cancel</button><button id="svGo">Load</button></div></div>';
+  document.body.appendChild(d);
+  document.getElementById('svNo').onclick = () => d.style.display = 'none';
+  document.getElementById('svGo').onclick = () => { const m = onLoad(document.getElementById('svTxt').value); if (m) document.getElementById('svMsg').textContent = m; else d.style.display = 'none'; };
+  return d;
+}
+
+// ############################ BAUM — one look for every upgrade node: ledger, banyan, and (with Fi) the elf tree ############################
+// colour = branch, shape = currency (round 💚, rounded square 〰 tails, hexagon Wandel); states: hidden · locked · poor · buy · own · max
+export const BAUM_FARBE = { ink: '#3fbf4a', throw: '#ff9a1e', void: '#e0489e', cat: '#e8452a', sap: '#ffc81e', roots: '#2f6fe8', guard: '#7a3fd6', elf: '#8fd23a' };   // v038: up (Robinson): leaf, blossom and fig colours · down (banyan): amber, deep blue, dark violet
+export const BAUM_GRP = { listen: 'sap', coarse: 'sap', fine: 'sap', rootOrder: 'roots', deepRoots: 'roots', ableger: 'roots', tower: 'guard', tower2: 'guard', cleanRot: 'guard', cleanRot2: 'guard', elf: 'elf', fi: 'elf' };
+export const BAUM_CUR = { green: '💚', tails: '🐟', rum: '🥃', wandel: '🌀' };
+function baumGlyph(c, id, r, col) {   // white symbols, drawn, no emoji
+  c.save(); c.strokeStyle = col || '#fff'; c.fillStyle = col || '#fff'; c.lineWidth = r * .14; c.lineCap = 'round'; c.lineJoin = 'round';
+  const L = (pts, close) => { c.beginPath(); pts.forEach(([x, y], i) => i ? c.lineTo(x * r, y * r) : c.moveTo(x * r, y * r)); if (close) c.closePath(); c.stroke(); };
+  const C = (x, y, rr, fill) => { c.beginPath(); c.arc(x * r, y * r, rr * r, 0, Math.PI * 2); fill ? c.fill() : c.stroke(); };
+  const A = (x, y, rr, a0, a1) => { c.beginPath(); c.arc(x * r, y * r, rr * r, a0, a1); c.stroke(); };
+  switch (id) {
+    case 'fi': case 'elf': L([[-.35, .1], [-.7, -.35], [-.3, -.1]]); L([[.35, .1], [.7, -.35], [.3, -.1]]); C(0, .05, .34); C(-.13, .02, .06, 1); C(.13, .02, .06, 1); L([[-.25, -.3], [0, -.5], [.25, -.3]]); break;
+    case 'dmg': c.fillRect(-.42 * r, .1 * r, .84 * r, .3 * r); L([[0, .1], [0, -.3]]); C(0, -.42, .14, 1); break;
+    case 'speed': C(0, .05, .42); L([[0, .05], [0, -.22]]); L([[0, .05], [.2, .15]]); L([[-.15, -.6], [.15, -.6]]); break;
+    case 'splash': for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; L([[Math.cos(a) * .2, Math.sin(a) * .2], [Math.cos(a) * .5, Math.sin(a) * .5]]); } C(0, 0, .14, 1); break;
+    case 'jump': A(0, .35, .5, Math.PI * 1.15, Math.PI * 1.85); L([[.28, -.12], [.42, .02], [.22, .06]]); c.fillRect(-.45 * r, .32 * r, .9 * r, .12 * r); break;   // v046
+    case 'boostLen': L([[-.45, -.3], [-.1, 0], [-.45, .3]]); L([[0, -.3], [.35, 0], [0, .3]]); break;
+    case 'magnet': A(0, .05, .32, Math.PI, 0); L([[-.32, .05], [-.32, .35]]); L([[.32, .05], [.32, .35]]); break;
+    case 'cycle': A(0, 0, .4, -Math.PI * .1, Math.PI * 1.6); L([[.33, -.35], [.42, -.05], [.12, -.1]]); break;
+    case 'cycleBoom': A(0, .15, .45, Math.PI * 1.1, Math.PI * 1.9); L([[-.36, -.18], [-.43, .02], [-.22, .02]]); break;
+    case 'cycleDive': L([[-.4, -.35], [.1, .2]]); L([[-.1, .25], [.15, .25], [.15, 0]]); L([[-.45, .4], [.45, .4]]); break;
+    case 'glide': A(0, .1, .5, Math.PI * 1.05, Math.PI * 1.95); L([[-.48, .05], [0, .45], [.48, .05]]); break;   // v054
+    case 'glideLen': L([[-.5, -.2], [.5, -.2]]); L([[-.5, .05], [.5, .05]]); L([[-.5, .3], [.5, .3]]); break;
+    case 'flame': c.beginPath(); c.moveTo(0, .45 * r); c.bezierCurveTo(-.45 * r, .2 * r, -.2 * r, -.2 * r, 0, -.5 * r); c.bezierCurveTo(.2 * r, -.2 * r, .45 * r, .2 * r, 0, .45 * r); c.fill(); break;
+    case 'flamePow': for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; L([[0, 0], [Math.cos(a) * .48, Math.sin(a) * .48]]); } C(0, 0, .16, 1); break;
+    case 'voidCharge': L([[-.3, -.45], [.3, -.45], [-.3, .45], [.3, .45]], true); break;
+    case 'voidHeal': L([[0, -.38], [0, .38]]); L([[-.38, 0], [.38, 0]]); break;
+    case 'void': C(0, 0, .45); C(0, 0, .2, 1); break;
+    case 'catDive': c.beginPath(); c.ellipse(-.05 * r, 0, .36 * r, .2 * r, 0, 0, Math.PI * 2); c.fill(); L([[.28, 0], [.52, -.22], [.52, .22]], true); A(-.05, -.15, .5, Math.PI * 1.15, Math.PI * 1.75); break;   // v042: a fish under an arc
+    case 'catBoard': c.beginPath(); c.ellipse(0, .25 * r, .55 * r, .12 * r, 0, 0, Math.PI * 2); c.fill(); C(-.05, -.12, .17, 1); L([[-.2, -.25], [-.18, -.45]]); L([[.08, -.25], [.1, -.45]]); break;
+    case 'catFish': L([[0, -.5], [0, .3]]); A(-.2, .3, .2, 0, Math.PI); c.beginPath(); c.ellipse(.18 * r, -.05 * r, .2 * r, .1 * r, 0, 0, Math.PI * 2); c.fill(); break;
+    case 'lapcat': c.beginPath(); c.moveTo(0, .4 * r); c.bezierCurveTo(-.7 * r, -.1 * r, -.3 * r, -.6 * r, 0, -.2 * r); c.bezierCurveTo(.3 * r, -.6 * r, .7 * r, -.1 * r, 0, .4 * r); c.fill(); break;
+    case 'listen': A(.05, 0, .38, -Math.PI * .7, Math.PI * .6); A(.05, -.02, .16, -Math.PI * .6, Math.PI * .5); break;
+    case 'coarse': L([[0, -.45], [0, .4]]); L([[-.45, -.2], [.45, -.2]]); L([[-.45, -.2], [-.6, .15], [-.3, .15]], true); L([[.45, -.2], [.3, .15], [.6, .15]], true); L([[-.25, .42], [.25, .42]]); break;
+    case 'fine': [[-.3, .1], [0, -.2], [.3, .25]].forEach(([x, y]) => { L([[x, -.45], [x, .45]]); C(x, y, .1, 1); }); break;
+    case 'tiles': [-.27, 0, .27].forEach(x => [-.27, 0, .27].forEach(y => c.strokeRect((x - .1) * r, (y - .1) * r, .2 * r, .2 * r))); break;
+    case 'rootOrder': L([[0, -.45], [0, .1]]); L([[0, .1], [-.35, .45]]); L([[0, .1], [.35, .45]]); L([[0, .1], [0, .45]]); break;
+    case 'deepRoots': L([[0, -.5], [0, .5]]); L([[0, 0], [-.4, .3]]); L([[0, 0], [.4, .3]]); L([[0, .25], [-.25, .5]]); L([[0, .25], [.25, .5]]); break;
+    case 'ableger': L([[0, .45], [0, -.1]]); c.beginPath(); c.ellipse(-.2 * r, -.25 * r, .22 * r, .12 * r, -.5, 0, 7); c.fill(); c.beginPath(); c.ellipse(.2 * r, -.3 * r, .22 * r, .12 * r, .5, 0, 7); c.fill(); break;
+    case 'tower': L([[-.25, .45], [-.15, -.4], [0, -.55], [.15, -.4], [.25, .45]], true); L([[-.2, 0], [.2, 0]]); break;
+    case 'tower2': L([[-.38, .45], [-.3, -.3], [-.18, -.45], [-.06, -.3], [.02, .45]], true); L([[.02, .45], [.1, -.2], [.22, -.35], [.34, -.2], [.42, .45]], true); break;   // v043: two towers
+    case 'cleanRot': L([[.4, -.45], [-.1, .1]]); L([[-.1, .1], [-.45, .45], [-.05, .4], [.05, .2]], true); break;
+    case 'cleanRot2': L([[.45, -.45], [0, 0]]); L([[0, 0], [-.4, .4]]); L([[-.45, -.1], [-.25, -.1]]); L([[-.35, -.2], [-.35, 0]]); L([[.1, .35], [.3, .35]]); L([[.2, .25], [.2, .45]]); break;
+    default: C(0, 0, .3);
+  }
+  c.restore();
+}
+function baumForm(c, cur, r) {
+  c.beginPath();
+  if (cur === 'wandel') { for (let i = 0; i < 6; i++) { const a = Math.PI / 6 + i * Math.PI / 3; c[i ? 'lineTo' : 'moveTo'](Math.cos(a) * r, Math.sin(a) * r); } c.closePath(); }
+  else if (cur === 'tails') { const s = r * .9; c.roundRect(-s, -s, 2 * s, 2 * s, r * .35); }
+  else c.arc(0, 0, r, 0, Math.PI * 2);
+}
+function baumTon(hex, k) { const v = parseInt(hex.slice(1), 16), f = x => Math.max(0, Math.min(255, Math.round(x * k))); return 'rgb(' + f(v >> 16) + ',' + f((v >> 8) & 255) + ',' + f(v & 255) + ')'; }
+// one node at (x, y): n = { id, grp, cur, state, lvl, max }; dark = elf-tree look (on light ground the locked ones are paper, not shadow)
+export function baumKnoten(c, x, y, r, n, t, dark) {
+  const col = BAUM_FARBE[n.grp] || '#9a9a9a', st = n.state;
+  c.save(); c.translate(x, y);
+  if (st === 'hidden') {
+    const k = Math.sin(t * 2 + n.id.length) * 3;
+    if (dark) { const g = c.createRadialGradient(0, k, 0, 0, k, r * 1.3); g.addColorStop(0, 'rgba(200,255,140,.35)'); g.addColorStop(1, 'rgba(200,255,140,0)'); c.fillStyle = g; c.beginPath(); c.arc(0, k, r * 1.3, 0, 7); c.fill(); }
+    else { c.fillStyle = 'rgba(110,90,60,.12)'; c.beginPath(); c.arc(0, 0, r * .8, 0, 7); c.fill(); }
+    c.fillStyle = dark ? 'rgba(220,255,190,.7)' : 'rgba(90,70,40,.45)'; c.font = '700 ' + Math.round(r * .9) + 'px Fredoka, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('?', 0, (dark ? k : 0) + 1);
+    c.restore(); return;
+  }
+  if (st === 'buy' || n.next === 'buy') { const k = .5 + .5 * Math.sin(t * 4); c.strokeStyle = dark ? 'rgba(220,255,160,' + (.35 + .5 * k) + ')' : 'rgba(230,160,20,' + (.4 + .5 * k) + ')'; c.lineWidth = 3; baumForm(c, n.cur, r + 5 + 3 * k); c.stroke(); }
+  if ((st === 'own' || st === 'max') && dark) { const g = c.createRadialGradient(0, 0, r * .6, 0, 0, r * 1.8); g.addColorStop(0, col + '66'); g.addColorStop(1, col + '00'); c.fillStyle = g; c.beginPath(); c.arc(0, 0, r * 1.8, 0, 7); c.fill(); }
+  baumForm(c, n.cur, r);
+  if (st === 'locked') { c.fillStyle = dark ? '#121d15' : '#e6dcc4'; c.fill(); c.lineWidth = 2.5; c.strokeStyle = dark ? '#2b3d2f' : 'rgba(90,70,40,.4)'; c.setLineDash(dark ? [] : [4, 4]); c.stroke(); c.setLineDash([]);
+    c.globalAlpha = dark ? .28 : .45; baumGlyph(c, n.id, r * .9, dark ? '#fff' : '#5a4628'); c.globalAlpha = 1; c.restore(); return; }
+  const dim = st === 'poor' ? .55 : 1, g = c.createLinearGradient(0, -r, 0, r); g.addColorStop(0, baumTon(col, 1.15 * dim)); g.addColorStop(1, baumTon(col, .62 * dim));
+  c.fillStyle = g; c.fill();
+  c.lineWidth = r * .16; c.strokeStyle = st === 'max' ? '#ffd25a' : dark ? '#0a140c' : '#3b2a1a'; c.stroke();
+  c.save(); baumForm(c, n.cur, r * .82); c.clip(); c.fillStyle = 'rgba(255,255,255,.16)'; c.fillRect(-r, -r, 2 * r, r * .75); c.restore();
+  c.globalAlpha = st === 'poor' ? .7 : 1; baumGlyph(c, n.id, r * .9); c.globalAlpha = 1;
+  if (n.max > 1 && n.max < 40) for (let i = 0; i < Math.min(n.max, 10); i++) { const a = Math.PI / 2 + (i - (Math.min(n.max, 10) - 1) / 2) * .26, xx = Math.cos(a) * (r + 9), yy = Math.sin(a) * (r + 9);
+    c.beginPath(); c.arc(xx, yy, 3.2, 0, 7); c.fillStyle = i < n.lvl ? (dark ? '#fff6e3' : '#3b2a1a') : (dark ? 'rgba(255,255,255,.18)' : 'rgba(59,42,26,.2)'); c.fill(); }
+  else if (n.max === undefined && n.lvl > 0) { c.fillStyle = dark ? '#fff6e3' : '#3b2a1a'; c.font = '700 ' + Math.round(r * .55) + 'px Fredoka, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(n.lvl, 0, r + 11); }
+  c.restore();
+}
+// the price under a node that can be bought (red when short)
+export function baumPreis(c, x, y, r, n, dark, fs) {
+  if (n.state !== 'buy' && n.state !== 'poor' && !n.next) return;
+  const txt = BAUM_CUR[n.cur] + ' ' + n.cost; fs = fs || 13; c.font = '700 ' + fs + 'px Fredoka, sans-serif'; const tw = c.measureText(txt).width + 12, yy = y + r + ((n.max > 1 && n.max < 40) || (n.max === undefined && n.lvl > 0) ? 17 : 7);
+  c.fillStyle = dark ? 'rgba(5,10,6,.85)' : 'rgba(255,250,236,.92)'; c.beginPath(); c.roundRect(x - tw / 2, yy, tw, fs + 6, 7); c.fill();
+  c.fillStyle = n.state === 'buy' || n.next === 'buy' ? (dark ? '#fff6e3' : '#3b2a1a') : '#d8402e'; c.textAlign = 'center'; c.textBaseline = 'top'; c.fillText(txt, x, yy + 3); c.textBaseline = 'alphabetic';
+}
+// ---------- the elf tree: ledger and banyan in one tree. v038: Robinson's upgrades grow up like leaves and blossoms, the banyan's
+// grow down like roots; Fi sits on the trunk above the ground, the banyan's Listen below it. Light parchment above, earth below. ----------
+export const ELFENBAUM = (() => {
+  const SPOKE = { cat: -158, ink: -121, throw: -84, void: -44, guard: 42, sap: 90, roots: 138 }, HUB = { fi: [800, 320], listen: [800, 580] };
+  const BLATT = Array.from({ length: 26 }, (_, i) => ({ x: (i * 37 % 100) / 100, y: (i * 53 % 100) / 100, r: 6 + (i % 5) * 3, a: i * .7 })), STEIN = Array.from({ length: 16 }, (_, i) => ({ x: (i * 41 % 100) / 100, y: (i * 29 % 100) / 100, r: 2 + (i % 4) }));
+  function pos(nodes) {
+    const by = {}; nodes.forEach(n => by[n.id] = n); const P = { fi: HUB.fi, listen: HUB.listen }, kids = {}; if (by.elf) P.elf = HUB.fi;   // v037: before Fi the Dark-Wood Elf waits where she will stand
+    nodes.forEach(n => { if (n.p) (kids[n.p] = kids[n.p] || []).push(n.id); });
+    const hubOf = n => ['sap', 'roots', 'guard'].includes(n.grp) ? 'listen' : 'fi';
+    const depth = id => { let d = 0, n = by[id]; while (n && n.p && n.id !== 'listen' && n.id !== 'fi') { d++; n = by[n.p]; } return d; };
+    nodes.forEach(n => { if (P[n.id]) return; const d = depth(n.id), c = HUB[hubOf(n)], a = (SPOKE[n.grp] || -90) * Math.PI / 180;
+      const sib = (kids[n.p] || []).filter(k => by[k] && by[k].grp === n.grp), i = sib.indexOf(n.id), off = (i - (sib.length - 1) / 2) * .34, rr = 30 + 150 * d, aa = a + (d > 1 ? off : 0);
+      P[n.id] = [c[0] + Math.cos(aa) * rr * 2.1, c[1] + Math.sin(aa) * rr * .62]; });   // v038: a wide crown above, wide roots below — the screens are wider than tall
+    return P;
+  }
+  function fit(w, h, P) {   // fit the used part of the tree, not the whole world
+    let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9; Object.values(P).forEach(([x, y]) => { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); });
+    const m = 38, lab = 18, s = Math.min((w - 2 * m) / Math.max(1, x1 - x0), (h - 2 * m - lab) / Math.max(1, y1 - y0));   // v037: margins in pixels, so small canvases keep their edge nodes
+    return { s, ox: (w - (x1 - x0) * s) / 2 - x0 * s, oy: (h - lab - (y1 - y0) * s) / 2 - y0 * s };
+  }
+  function zeichnen(c, w, h, t, nodes, sel) {
+    const P = pos(nodes), F = fit(w, h, P), Q = id => [F.ox + P[id][0] * F.s, F.oy + P[id][1] * F.s], R = id => (id === 'fi' || id === 'listen' || id === 'elf' ? 44 : 28) * Math.min(1.1, Math.max(F.s, .55));
+    const gy = Math.max(0, Math.min(h, (Q('fi')[1] + Q('listen')[1]) / 2));
+    // above: parchment with pale leaves · below: earth with stones and fine roots
+    let g = c.createLinearGradient(0, 0, 0, gy); g.addColorStop(0, '#f6efd9'); g.addColorStop(1, '#e6d8ae'); c.fillStyle = g; c.fillRect(0, 0, w, gy);
+    g = c.createLinearGradient(0, gy, 0, h); g.addColorStop(0, '#b79566'); g.addColorStop(1, '#7a5c3a'); c.fillStyle = g; c.fillRect(0, gy, w, h - gy);
+    BLATT.forEach(b => { const y = b.y * gy; if (y > gy - 8) return; c.fillStyle = 'rgba(110,150,70,.12)'; c.beginPath(); c.ellipse(b.x * w, y, b.r, b.r * .45, b.a, 0, 7); c.fill(); });
+    STEIN.forEach(b => { c.fillStyle = 'rgba(60,40,20,.18)'; c.beginPath(); c.ellipse(b.x * w, gy + 10 + b.y * (h - gy - 14), b.r * 1.4, b.r, 0, 0, 7); c.fill(); });
+    c.strokeStyle = 'rgba(60,40,20,.22)'; c.lineWidth = 1.5; for (let i = 0; i < 9; i++) { const x = (i + .5) / 9 * w; c.beginPath(); c.moveTo(x, gy); c.quadraticCurveTo(x + 24 * Math.sin(i), gy + (h - gy) * .5, x - 12, gy + (h - gy) * (.5 + (i % 3) * .2)); c.stroke(); }
+    c.fillStyle = '#6b8f3a'; c.fillRect(0, gy - 3, w, 4); c.fillStyle = 'rgba(70,50,25,.5)'; c.fillRect(0, gy + 1, w, 2);   // the ground line
+    const root = (a, b, k) => { const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2, dx = b[0] - a[0], dy = b[1] - a[1]; c.beginPath(); c.moveTo(a[0], a[1]); c.quadraticCurveTo(mx - dy * k, my + dx * k, b[0], b[1]); };
+    const vis = nodes.filter(n => n.p && P[n.p] && n.state !== 'hidden' && n.id !== 'listen');
+    vis.forEach(n => { const a = Q(n.p), b = Q(n.id), wd = 10 * F.s, up = b[1] < gy; root(a, b, .18); c.lineWidth = wd + 3 * F.s; c.strokeStyle = up ? '#5a3d1e' : '#3a2412'; c.stroke(); root(a, b, .18); c.lineWidth = wd; c.strokeStyle = up ? '#8a6238' : '#5e3c1e'; c.stroke(); });
+    if (nodes.some(n => n.id === 'fi')) { const a = Q('fi'), b = Q('listen'), o = 9 * F.s;   // the trunk: a double root, sap runs both ways
+      [[-o, 1, BAUM_FARBE.elf], [o, -1, BAUM_FARBE.sap]].forEach(([d, dir, col]) => { const a2 = [a[0] + d, a[1]], b2 = [b[0] + d, b[1]];
+        root(a2, b2, .05 * dir); c.lineWidth = 14 * F.s; c.strokeStyle = '#5a3d1e'; c.stroke(); root(a2, b2, .05 * dir); c.lineWidth = 5 * F.s; c.strokeStyle = col; c.setLineDash([10 * F.s, 8 * F.s]); c.lineDashOffset = -t * 30 * F.s * dir; c.stroke(); c.setLineDash([]); }); }
+    vis.forEach(n => { if (n.state === 'locked') return; const a = Q(n.p), b = Q(n.id), col = BAUM_FARBE[n.grp] || '#999', live = n.state === 'own' || n.state === 'max';
+      root(a, b, .18); c.lineWidth = (live ? 4 : 2) * F.s * 1.4; c.strokeStyle = col + (live ? 'dd' : '77'); c.setLineDash(live ? [10 * F.s, 8 * F.s] : [3 * F.s, 9 * F.s]); c.lineDashOffset = -t * 30 * F.s; c.stroke(); c.setLineDash([]); });
+    nodes.forEach(n => { if (!P[n.id]) return; const [x, y] = Q(n.id); baumKnoten(c, x, y, R(n.id), n, t, false); });
+    nodes.forEach(n => { if (!P[n.id]) return; const [x, y] = Q(n.id); baumPreis(c, x, y, R(n.id), n, false, Math.max(11, Math.round(18 * F.s))); });
+    if (sel && P[sel]) { const [x, y] = Q(sel); c.save(); c.translate(x, y); c.rotate(t * .8); c.strokeStyle = '#3b2a1a'; c.lineWidth = 2; c.setLineDash([6, 6]); c.beginPath(); c.arc(0, 0, R(sel) + 14, 0, 7); c.stroke(); c.restore(); }
+  }
+  function treffer(w, h, x, y, nodes) { const P = pos(nodes), F = fit(w, h, P); let best = null, bd = 1e9;
+    nodes.forEach(n => { if (!P[n.id]) return; const d = Math.hypot(F.ox + P[n.id][0] * F.s - x, F.oy + P[n.id][1] * F.s - y), r = (n.id === 'fi' || n.id === 'listen' || n.id === 'elf' ? 44 : 28) * Math.min(1.1, Math.max(F.s, .55)); if (d < r + 12 && d < bd) { bd = d; best = n.id; } });
+    return best; }
+  return { zeichnen, treffer };
+})();
+
+// ---------- Fi: six looks as small SVG pictures (portraits for the transformation, the look picker and the memos window) ----------
+export const FI_LOOKS = ['Dryad · corset', 'Dryad · moss and seed', 'Dryad · root crown', 'Sorceress · pen wand', 'Sorceress · memos', 'Sorceress · wisps'];
+export const FI_MINI = [   // the tiny map figure per look: skin, hair, dress, accent
+  ['#6e7f88', '#1d2a24', '#7a4a2a', '#d4a017'], ['#7c8a7a', '#5a2a1a', '#3f7a36', '#8a5530'], ['#5f7480', '#7a2e1a', '#8a5530', '#3f8f4f'],
+  ['#5a7a84', '#0f151a', '#22444f', '#d4a017'], ['#6a7f8c', '#cfd6d8', '#1a2c2a', '#3f8f4f'], ['#5f7a86', '#141c22', '#14232a', '#c0281e']];
+export const fiSVG = (() => {
+const defs = `<defs>
+ <radialGradient id="bg" cx=".5" cy=".35" r=".7"><stop offset="0" stop-color="#1f3d2c"/><stop offset="1" stop-color="#0b1610"/></radialGradient>
+ <radialGradient id="glow" r=".5"><stop offset="0" stop-color="#e9ff9a" stop-opacity=".95"/><stop offset=".4" stop-color="#9dff6a" stop-opacity=".45"/><stop offset="1" stop-color="#4fdc4f" stop-opacity="0"/></radialGradient>
+ <linearGradient id="leather" x1="0" x2="1"><stop offset="0" stop-color="#5e361c"/><stop offset=".5" stop-color="#8a5530"/><stop offset="1" stop-color="#5e361c"/></linearGradient>
+ <linearGradient id="teal" x1="0" x2="1"><stop offset="0" stop-color="#132a32"/><stop offset=".5" stop-color="#22444f"/><stop offset="1" stop-color="#132a32"/></linearGradient>
+ <linearGradient id="moss" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3f7a36"/><stop offset="1" stop-color="#22401f"/></linearGradient>
+</defs>`;
+// a standing woman, front view. o: curvy 0..1, skin, hair, dress (fill), neck (neckline type), extras
+function body(o) {
+  const c = o.curvy, bw = 24 + 8 * c, ww = 14 + 3 * c, hw = 24 + 12 * c, sk = o.skirtW || (44 + 16 * c);
+  const skin = o.skin, sh = 26 - 2 * (1 - c);
+  let g = '';
+  // back hair
+  g += o.hairBack || '';
+  // arms (behind dress edges)
+  g += `<path d="${o.armL || `M${200 - sh} 158 Q${200 - sh - 12} 196 ${200 - sh - 6} 232 Q${200 - sh - 2} 250 ${200 - sh + 4} 256`}" stroke="${skin}" stroke-width="8" stroke-linecap="round" fill="none"/>`;
+  g += `<path d="${o.armR || `M${200 + sh} 158 Q${200 + sh + 12} 196 ${200 + sh + 6} 232 Q${200 + sh + 2} 250 ${200 + sh - 4} 256`}" stroke="${skin}" stroke-width="8" stroke-linecap="round" fill="none"/>`;
+  // neck + shoulders + upper chest (skin)
+  g += `<path d="M194 132 L194 150 Q${200 - sh} 152 ${200 - sh} 162 L${200 - bw + 4} 186 L${200 + bw - 4} 186 L${200 + sh} 162 Q${200 + sh} 152 206 150 L206 132Z" fill="${skin}"/>`;
+  // dress: bust, waist, hips, skirt
+  const top = o.neck === 'high' ? `M${200 - sh} 158 Q200 150 ${200 + sh} 158` : `M${200 - bw + 2} 176 Q${200 - bw / 2} ${168} 200 180 Q${200 + bw / 2} ${168} ${200 + bw - 2} 176`;
+  const startX = o.neck === 'high' ? 200 + sh : 200 + bw - 2, startY = o.neck === 'high' ? 158 : 176;
+  g += o.midriff ? `<path d="${top} Q${200 + bw + 1} 190 ${200 + bw - 3} 204 Q200 210 ${200 - bw + 3} 204 Q${200 - bw - 1} 190 ${o.neck === 'high' ? 200 - sh : 200 - bw + 2} ${o.neck === 'high' ? 158 : 176}Z" fill="${o.dress}"/><path d="M${200 - hw - 1} 252 Q200 258 ${200 + hw + 1} 252 L${200 + sk} 326 Q200 338 ${200 - sk} 326Z" fill="${o.dress}"/>` : '';
+  if (!o.midriff) g += `<path d="${top} Q${200 + bw + 1} 190 ${200 + bw - 3} 202 Q${200 + ww + 6} 214 ${200 + ww} 226 Q${200 + hw} 246 ${200 + hw} 264 L${200 + sk} 326 Q200 338 ${200 - sk} 326 L${200 - hw} 264 Q${200 - hw} 246 ${200 - ww} 226 Q${200 - ww - 6} 214 ${200 - bw + 3} 202 Q${200 - bw - 1} 190 ${o.neck === 'high' ? 200 - sh : 200 - bw + 2} ${o.neck === 'high' ? 158 : 176}Z" fill="${o.dress}"/>`;
+  if (o.midriff) {   // two-piece: bare waist between the top and a low-slung skirt
+    g += `<path d="M${200 - bw + 3} 204 Q${200 - ww - 4} 214 ${200 - ww} 226 Q${200 - hw} 246 ${200 - hw} 252 L${200 + hw} 252 Q${200 + hw} 246 ${200 + ww} 226 Q${200 + ww + 4} 214 ${200 + bw - 3} 204Z" fill="${skin}"/>`;
+    g += `<ellipse cx="200" cy="232" rx="1.2" ry="2" fill="rgba(0,0,0,.25)"/>`;
+  }
+  if (o.slit) g += `<path d="M${200 + o.slit} 270 L${200 + o.slit + 10} 330 L${200 + o.slit - 4} 330Z" fill="${skin}"/>`;
+  // bust shading (subtle)
+  g += `<path d="M${200 - bw + 6} 196 Q${200 - bw / 2} 206 198 198 M202 198 Q${200 + bw / 2} 206 ${200 + bw - 6} 196" stroke="rgba(0,0,0,.25)" stroke-width="2" fill="none"/>`;
+  g += o.dressDeco ? o.dressDeco({ bw, ww, hw, sk, sh }) : '';
+  // head
+  g += `<path d="M180 114 Q166 104 ${154 - (o.ear || 0)} 94 Q170 98 181 106Z M220 114 Q234 104 ${246 + (o.ear || 0)} 94 Q230 98 219 106Z" fill="${skin}"/>`;
+  g += `<path d="M179 104 Q179 86 200 86 Q221 86 221 104 Q222 118 216 127 Q209 137 200 139 Q191 137 184 127 Q178 118 179 104Z" fill="${skin}"/>`;
+  g += `<path d="M184 126 Q191 136 200 138 Q209 136 216 126" stroke="rgba(0,0,0,.12)" stroke-width="1.5" fill="none"/>`;
+  const eye = (cx, d) => `<path d="M${cx - 6 * d} 111 Q${cx} 104.5 ${cx + 6 * d} 109.5 Q${cx} 114.5 ${cx - 6 * d} 111Z" fill="#f4f6ec"/><circle cx="${cx + .5 * d}" cy="110" r="3" fill="${o.eye || '#7ad84a'}"/><circle cx="${cx + .5 * d}" cy="110" r="1.4" fill="#0e1a10"/><circle cx="${cx + 1.4 * d}" cy="109" r=".8" fill="#fff"/><path d="M${cx - 6.5 * d} 111 Q${cx} 103.5 ${cx + 6.5 * d} 109" stroke="#111" stroke-width="1.6" fill="none"/><path d="M${cx + 6 * d} 109.5 l${2.5 * d} -2 M${cx + 4 * d} 107 l${1.5 * d} -2.5" stroke="#111" stroke-width="1"/>`;
+  g += eye(190, -1) + eye(210, 1);
+  g += `<path d="M183 102 Q190 98 196 101 M204 101 Q210 98 217 102" stroke="#1a1a1a" stroke-width="1.6" fill="none" stroke-linecap="round"/>`;
+  g += `<path d="M199 114 Q198 120 196.5 122 Q199 123.5 201.5 122.5" stroke="rgba(0,0,0,.28)" stroke-width="1.2" fill="none"/>`;
+  g += `<path d="M194.5 128 Q197 126 200 127 Q203 126 205.5 128 Q200 129.5 194.5 128Z" fill="${o.lip || '#8a3a4a'}"/><path d="M194.5 128 Q200 133 205.5 128 Q200 130 194.5 128Z" fill="${o.lip2 || '#a8506a'}"/>`;
+  g += `<ellipse cx="186" cy="119" rx="4" ry="2.5" fill="#ff8a8a" opacity=".2"/><ellipse cx="214" cy="119" rx="4" ry="2.5" fill="#ff8a8a" opacity=".2"/>`;
+  g += o.hairFront || '';
+  g += o.extra || '';
+  return g;
+}
+const L = '#6e7f88';  // dusky dark-forest skin
+const L2 = '#7c8a7a', L3 = '#5f7480';
+const roots = (col = '#3b2414') => `<g stroke="${col}" stroke-width="5" fill="none" stroke-linecap="round"><path d="M170 326 Q156 336 132 338"/><path d="M186 330 Q184 340 168 346"/><path d="M214 330 Q218 340 236 344"/><path d="M230 326 Q248 334 270 336"/></g>`;
+const stitch = (x1, y1, x2, y2) => `<path d="M${x1} ${y1} L${x2} ${y2}" stroke="#e8c79a" stroke-width="1.3" stroke-dasharray="4 4"/>`;
+const clasp = (x, y) => `<rect x="${x - 9}" y="${y - 7}" width="18" height="14" rx="3" fill="#d4a017" stroke="#8a6a0a" stroke-width="2"/>`;
+
+const figs = [
+ // D1 corset dryad, long wavy hair, handle tiara
+ body({ curvy: 1, skin: L, dress: 'url(#leather)',
+   hairBack: `<path d="M178 96 Q160 140 166 200 Q170 230 160 250 Q186 240 186 200 L214 200 Q214 240 240 250 Q230 230 234 200 Q240 140 222 96Z" fill="#1d2a24"/>`,
+   hairFront: `<path d="M178 112 Q176 84 200 84 Q226 84 224 114 Q214 96 200 98 Q186 96 178 112Z" fill="#1d2a24"/><path d="M168 106 Q200 62 232 106" stroke="#5a341c" stroke-width="6" fill="none" stroke-linecap="round"/><circle cx="168" cy="106" r="4.5" fill="#d4a017"/><circle cx="232" cy="106" r="4.5" fill="#d4a017"/><path d="M224 90 q14 -6 18 6 q-12 4 -18 -6Z" fill="#3f8f4f"/>`,
+   dressDeco: d => `<path d="M${200 - d.ww - 2} 214 L${200 + d.ww + 2} 214 L${200 + d.ww} 236 L${200 - d.ww} 236Z" fill="#3a2414"/>${clasp(200, 225)}${stitch(200 - d.bw + 6, 196, 200 - d.hw + 6, 262)}${stitch(200 + d.bw - 6, 196, 200 + d.hw - 6, 262)}<g stroke="#e8c79a" stroke-width="1.2"><path d="M194 186 L206 192 M194 194 L206 200 M206 186 L194 192 M206 194 L194 200"/></g>` + roots() }),
+ // D2 off-shoulder top + moss skirt, hair up, strap sash, glowing seed
+ body({ curvy: .9, skin: L2, dress: 'url(#moss)', neck: 'low',
+   hairBack: `<ellipse cx="200" cy="80" rx="16" ry="14" fill="#5a2a1a"/>`,
+   hairFront: `<path d="M178 114 Q176 86 200 86 Q224 86 222 114 Q216 98 204 98 Q190 100 178 114Z" fill="#5a2a1a"/><path d="M184 76 l-10 -14 M214 74 l10 -12 M200 70 l2 -16" stroke="#4a3a2a" stroke-width="2.5"/><circle cx="174" cy="62" r="3" fill="#3f8f4f"/><circle cx="224" cy="62" r="3" fill="#3f8f4f"/><path d="M180 120 q-4 16 -2 26" stroke="#5a2a1a" stroke-width="2.5" fill="none"/>`,
+   armR: 'M226 160 Q244 190 236 214 Q230 222 220 216',
+   dressDeco: d => `<path d="M${200 - d.bw + 2} 176 Q200 170 ${200 + d.bw - 2} 176 L${200 + d.ww + 4} 222 L${200 - d.ww - 4} 222Z" fill="url(#leather)"/>${stitch(200 - d.bw + 6, 182, 200 - d.ww, 218)}${stitch(200 + d.bw - 6, 182, 200 + d.ww, 218)}<path d="M${200 - d.bw} 178 L${200 + d.hw} 258" stroke="#3a2414" stroke-width="6"/>${clasp(200 + d.ww + 4, 228)}<g fill="#5f9a4a"><circle cx="180" cy="290" r="4"/><circle cx="222" cy="300" r="5"/><circle cx="200" cy="270" r="3"/></g><circle cx="220" cy="210" r="22" fill="url(#glow)"/><circle cx="220" cy="210" r="5" fill="#f6ffd0"/>` + roots('#2a4a26') }),
+ // D3 leather-strap gown with leaves, red-brown long hair, crown of aerial roots, hand on hip
+ body({ curvy: 1, skin: L3, dress: 'url(#leather)', ear: 4, midriff: true, slit: -18, neck: 'low',
+   hairBack: `<path d="M180 94 Q154 150 170 230 Q176 262 166 284 Q196 270 192 220 L208 220 Q206 270 236 284 Q226 262 230 230 Q246 150 220 94Z" fill="#7a2e1a"/>`,
+   hairFront: `<path d="M178 114 Q180 82 204 84 Q226 88 222 116 Q212 92 196 96 Q186 100 178 114Z" fill="#7a2e1a"/><g stroke="#5a4428" stroke-width="2" fill="none"><path d="M178 90 Q168 70 172 50"/><path d="M190 84 Q186 64 192 46"/><path d="M210 84 Q214 64 208 46"/><path d="M222 90 Q232 70 228 50"/></g><g fill="#3f8f4f"><circle cx="172" cy="50" r="3"/><circle cx="192" cy="46" r="3"/><circle cx="208" cy="46" r="3"/><circle cx="228" cy="50" r="3"/></g>`,
+   armL: 'M174 160 Q158 190 168 214 Q176 226 186 224',
+   dressDeco: d => `<g stroke="#3a2414" stroke-width="4"><path d="M${200 - d.bw} 196 L${200 + d.bw} 208"/><path d="M${200 - d.hw} 262 L${200 + d.hw} 250"/><path d="M${200 - d.sk + 10} 312 L${200 + d.sk - 6} 296"/></g>${clasp(200, 255)}<g fill="#3f8f4f"><path d="M${200 - d.hw + 4} 270 q-14 10 -6 24 q8 -12 6 -24Z"/><path d="M${200 + d.hw - 2} 280 q16 6 12 22 q-12 -8 -12 -22Z"/><path d="M196 160 q-10 -8 -18 0 q10 6 18 0Z"/></g>` + roots() }),
+ // S1 slim sorceress: high collar teal gown, flap cape, pen wand glow
+ body({ curvy: .15, skin: '#5a7a84', dress: 'url(#teal)', neck: 'high', skirtW: 46, eye: '#c8ff7a', lip: '#5a2a3a',
+   hairBack: `<path d="M180 94 Q166 160 172 290 L228 290 Q234 160 220 94Z" fill="#0f151a"/>`,
+   hairFront: `<path d="M178 116 Q176 84 200 84 Q224 84 222 116 L214 100 Q200 92 186 100Z" fill="#0f151a"/>`,
+   armR: 'M224 160 Q246 176 252 150 Q254 136 258 124',
+   extra: `<path d="M172 152 Q200 140 228 152 L236 196 Q200 210 164 196Z" fill="#3a2414" opacity=".95"/><path d="M184 152 L185 140 Q200 136 215 140 L216 152" fill="#203a44" stroke="#2c4f5c" stroke-width="2"/>${clasp(200, 162)}<path d="M258 124 L270 92" stroke="#1a1a1a" stroke-width="5" stroke-linecap="round"/><path d="M268 96 L272 86" stroke="#d4a017" stroke-width="3"/><circle cx="272" cy="84" r="26" fill="url(#glow)"/><g stroke="#9dff6a" stroke-width="1.5" fill="none" opacity=".8"><path d="M272 84 q20 10 26 32"/><path d="M272 84 q-6 22 -26 30"/></g>` }),
+ // S2 hooded slim robe, silver hair, orbiting memo pages
+ body({ curvy: .2, skin: '#6a7f8c', dress: '#1a2c2a', neck: 'low', skirtW: 48, eye: '#d8ff8a', lip: '#6a2a3e', ear: 6,
+   hairBack: `<path d="M168 96 Q150 170 162 310 L238 310 Q250 170 232 96 Q200 60 168 96Z" fill="#203a3a"/><path d="M182 104 Q170 170 178 240 L222 240 Q230 170 218 104Z" fill="#cfd6d8"/>`,
+   hairFront: `<path d="M178 116 Q178 86 200 86 Q222 86 222 116 Q212 98 200 100 Q188 98 178 116Z" fill="#cfd6d8"/><path d="M166 112 Q170 70 200 66 Q230 70 234 112 Q224 80 200 78 Q176 80 166 112Z" fill="#203a3a"/>`,
+   dressDeco: d => `<path d="M${200 - d.bw + 2} 176 L196 326 M${200 + d.bw - 2} 176 L204 326" stroke="#3f8f4f" stroke-width="2"/><path d="M${200 - d.ww - 1} 224 L${200 + d.ww + 1} 224" stroke="#d4a017" stroke-width="3"/>`,
+   armL: 'M176 160 Q160 196 150 214 Q146 222 140 226', armR: 'M224 160 Q240 196 250 214 Q254 222 260 226',
+   extra: `<circle cx="200" cy="232" r="70" fill="url(#glow)" opacity=".35"/>${[[132, 196, -20], [268, 190, 18], [146, 268, 12], [256, 262, -14], [200, 62, 4]].map(([x, y, r]) => `<g transform="rotate(${r} ${x} ${y})"><rect x="${x - 12}" y="${y - 9}" width="24" height="18" rx="2" fill="#efe2c2"/><path d="M${x - 8} ${y - 4}h16M${x - 8} ${y + 1}h12" stroke="#3f8f4f" stroke-width="1.5"/></g>`).join('')}` }),
+ // S3 sleeveless gown, long gloves, high ponytail with red pen, clasp choker, wisps
+ body({ curvy: .35, skin: '#5f7a86', dress: '#14232a', neck: 'low', skirtW: 42, midriff: true, slit: 12, eye: '#b8ff6a', lip: '#7a2a3a',
+   hairBack: `<path d="M206 70 Q244 90 236 160 Q232 210 246 250 Q220 236 222 180 Q224 120 206 92Z" fill="#141c22"/>`,
+   hairFront: `<path d="M178 116 Q176 84 200 84 Q224 84 222 112 Q210 94 196 96 Q184 100 178 116Z" fill="#141c22"/><circle cx="204" cy="80" r="9" fill="#141c22"/><path d="M190 70 L222 86" stroke="#c0281e" stroke-width="3"/><circle cx="222" cy="86" r="2" fill="#d4a017"/>`,
+   armL: 'M176 160 Q162 196 166 228 Q168 246 176 252', armR: 'M224 160 Q246 170 256 146 Q260 134 266 128',
+   dressDeco: d => `<path d="M${200 - d.hw} 254 Q200 260 ${200 + d.hw} 254" stroke="#d4a017" stroke-width="2" fill="none"/><path d="M${200 - d.bw + 2} 176 Q200 186 ${200 + d.bw - 2} 176" stroke="#d4a017" stroke-width="1.5" fill="none"/>`,
+   extra: `<path d="M166 210 Q164 236 176 252" stroke="#0e1418" stroke-width="9" stroke-linecap="round" fill="none"/><path d="M252 154 Q258 138 266 128" stroke="#0e1418" stroke-width="9" stroke-linecap="round" fill="none"/><path d="M190 142 Q200 148 210 142" stroke="#d4a017" stroke-width="3" fill="none"/><rect x="195" y="144" width="10" height="8" rx="2" fill="#d4a017" stroke="#8a6a0a" stroke-width="1.5"/>${[[272, 110, 16], [290, 140, 10], [258, 84, 8], [240, 60, 6]].map(([x, y, r]) => `<circle cx="${x}" cy="${y}" r="${r * 1.8}" fill="url(#glow)"/><circle cx="${x}" cy="${y}" r="${r / 4}" fill="#f6ffd0"/>`).join('')}` }),
+];
+  return i => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="110 30 180 320" width="180" height="320">' + defs + figs[i] + '</svg>';
+})();
+const FI_IMG = [];
+export function fiBild(i) { if (!FI_IMG[i]) { const im = new Image(); im.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(fiSVG(i)); FI_IMG[i] = im; } return FI_IMG[i]; }
+
+// ############################ INHALTE — fixed numbers, texts and data tables (pure data; mutating at runtime is fine, reassigning is not) ############################
+// a name used in both worlds gets a suffix (PET_CODES_STRAND / PET_CODES_INSEL) and arrives under the plain name
+// ------------------------------- STRAND (beach) -------------------------------
+export const STATS = {
+  crusoe: { dmg: 1, atkInt: 1.5, range: 11, splash: .2, splashR: 12, wade: 22, walk: 26, crawl: 7, reach: 40 },   // v033: every stamp splashes 20 % onto the others in range (VOID too)
+  boomerang: { range: 32, speed: 80, cd: 5, push: 6, dmgMult: 1 },
+  void: { dash: 22, mult: 3, cd: 25, window: 2, seekR: 22, seekRStep: 6 },
+  cat: { dashTime: .12, backTime: .3, rest: .45 },
+  ebb: { tideFirst: 4, tide: 8, palmStart: 2, poolSips: 3, crabsFirst: 2, crabs: 2 },   // v058: max stamina grows a little slower
+  // crabs per ebb: several early on, soon one, later only now and then — buried, the cat finds them
+  crabPlan: { twoUntil: 0, oneUntil: 7, everyOtherUntil: 11, buriedChance: .2 },   // v055: max stamina grows only every other tide; v060: one crab every tide until tide 7 (more to spend tides on), one coconut less to start
+  turn: .07,                    // combat: delay before Crusoe turns round (s)
+  tortoise: { barMax: 3 }
+};
+// monster types; drops: number = guaranteed amount, fraction = chance of one
+export const MONSTERS = {
+  // pool 1: invasive species the yacht brought in, gone green with rot
+  tadpole: { name: 'cane toad tadpole', icon: '🐸', hp: 2, dmg: 1, atkInt: 1.5, speed: 16, size: .8, drops: { green: 1 } },
+  clam:    { name: 'zebra mussel', icon: '🐚', hp: 14, dmg: 1, atkInt: 1.5, speed: 9, size: .9, drops: { green: 2, rum: .3 }, pearl: true },
+  rat:     { name: 'ship rat', icon: '🐀', hp: 8, dmg: 2, atkInt: 1.2, speed: 30, size: .85, drops: { green: 2, tails: .5 } },
+  // pool 2: paperwork — Crusoe's own past, from wave 10 on
+  wasp:    { name: 'invoice wasp', icon: '📄', hp: 5, dmg: 1, atkInt: .85, speed: 34, size: .85, fly: true, drops: { green: 3 } },
+  // boss: a rot-held lump with one evil eye, ropes and the yacht's lifebuoy; shoots pages from its survey folder
+  bailiff: { name: 'The First Mate', icon: '👁', hp: 80, dmg: 3, atkInt: 2.4, windup: .7, speed: 6, size: 1, boss: true, reach: 9,
+             ranged: { dmg: 1, int: 2.6, range: 70, speed: 42 }, drops: { green: 25 } },
+  // the First Mate in his own office (nest fight): demoted, thinner, still both attacks — home advantage +50 % hp
+  bailiff1: { name: 'The Cabin Boy (ex-First Mate)', icon: '👁', hp: 68, dmg: 2, atkInt: 2.2, windup: .65, speed: 7, size: .88, boss: true, reach: 9, fixedScale: true,
+             ranged: { dmg: 1, int: 3.2, range: 70, speed: 44 }, drops: { green: 20 } },
+  // v021: the elite of the Board's last army — a coconut crab the size of a rowing boat, repossession tag on its shell; heavy claw slam you can dodge
+  repocrab: { name: 'The Repo Crab', icon: '🦀', hp: 42, dmg: 2, atkInt: 2.3, windup: .75, speed: 6, size: .95, elite: true, reach: 8, fixedScale: true, drops: { green: 12 } },
+  bailiff2: { name: 'The Bilge Rat (ex-First Mate)', icon: '👁', hp: 38, dmg: 1, atkInt: 2.0, windup: .6, speed: 8, size: .75, boss: true, reach: 8, fixedScale: true,
+             ranged: { dmg: 1, int: 4.0, range: 70, speed: 46 }, drops: { green: 15 } }
+};
+// wave composition per flood; floods beyond the table repeat the last entry, scaled up
+// a new type roughly every three waves; in between the count rises (and hp scales per wave)
+export const WAVES = [
+  null,
+  { tadpole: 8 }, { tadpole: 12 }, { tadpole: 16 },
+  { tadpole: 8, clam: 3 }, { tadpole: 8, clam: 5 }, { tadpole: 8, clam: 6 },
+  { tadpole: 6, clam: 5, rat: 2 }, { tadpole: 6, clam: 6, rat: 3 }, { tadpole: 6, clam: 6, rat: 5 },
+  { bailiff: 1, wasp: 2, rat: 2 },
+  { tadpole: 6, clam: 4, rat: 2, wasp: 3 }, { tadpole: 6, clam: 5, rat: 3, wasp: 4 }, { tadpole: 6, clam: 6, rat: 4, wasp: 5 }
+];
+// v041: what a surf stage brings for the first time (progress track on the result card)
+export const SURF_NEU = { 1: '🐸', 2: '💨', 3: '🐚', 4: '🐟', 5: '↺', 7: '📄', 8: '◉' };
+// boss pacing: first boss at wave 10, second not before 30, later ones not before 45 (then every 15) — fine-tuning later
+export const BOSS_PLAN = { first: 10, second: 30, laterFrom: 45, laterEvery: 15, upTo: 300, type: 'bailiff', halfEscort: true };
+// v033: a Board army is the current beach wave plus a surcharge per strength above `base` (the Repo Crab comes on top)
+// v036: a nest fight = the current beach wave plus 10 % more monsters
+export const NEST_WAVE = { mul: 1.1 };
+export const ARMY_WAVE = { base: 5, perStr: .15, minMul: .8 };
+// v033: the First Mate's last stand (his last cabin): sky goes dark, a telegraphed shockwave, rage at half health, loyal clerks
+export const LAST_STAND = { hpMul: 1.6, sevFirst: 5, sevEvery: 8, sevWarn: 2, sevDmg: 3, sevWidth: 12, rageAt: .5, rageSpeed: 1.3, rageAtk: .7, adds: [.66, .33], addType: 'wasp', addN: 3 };
+export const WAVE_SPAWN = { 3: .75 };           // spawn interval multiplier for single waves
+export const WAVE_TUNING = { spawnBase: 1.7, spawnPerFlood: .06, spawnMin: .7, hpPerFlood: .08, extraRatsBeyond: 2, bossHpScale: 0 };
+// root turret: arrives a few tides after the island map opens (test stand-in for a map action)
+export const TURRET = { afterTides: 6, int: 3, dmg: 1, dmgStamp: .5,   // v034: a vine hits for half a stamp
+  root: 2, range: 40, speed: 90 };
+// skill tree: grows from the NOTAX stamp; groups (hubs) carry their own branches — asymmetric on purpose.
+// x/y in a 1000×620 layout space; 'p' = parent (drawn branch), 'link' = extra dependency shown as a thin tendril
+export const TREE = {
+  root:     { x: 500, y: 578, kind: 'root', label: 'NOTAX', icon: '✒', acct: '000' },
+  hInk:     { x: 690, y: 470, kind: 'hub', p: 'root', label: 'Ink', grp: 'ink' },
+  dmg:      { x: 600, y: 372, p: 'hInk', icon: '⬛', acct: '101', grp: 'ink' },
+  speed:    { x: 735, y: 340, p: 'hInk', icon: '⏱', acct: '102', grp: 'ink' },
+  splash:   { x: 868, y: 392, p: 'hInk', icon: '✺', acct: '103', grp: 'ink' },
+  hThrow:   { x: 345, y: 430, kind: 'hub', p: 'root', label: 'Moves', grp: 'throw' },   // v046: D and A
+  jump:     { x: 300, y: 340, p: 'hThrow', icon: '⤴', acct: '201', grp: 'throw' },
+  boostLen: { x: 215, y: 262, p: 'hThrow', icon: '»', acct: '202', grp: 'throw' },
+  magnet:   { x: 318, y: 214, p: 'hThrow', icon: '♥', acct: '203', grp: 'throw' },
+  cycle:    { x: 430, y: 332, p: 'hThrow', icon: '↺', acct: '211', grp: 'throw' },
+  cycleBoom:{ x: 420, y: 230, p: 'cycle', icon: '⟲', acct: '212', grp: 'throw' },
+  cycleDive:{ x: 470, y: 150, p: 'cycle', icon: '⤵', acct: '213', grp: 'throw' },
+  glide:    { x: 225, y: 150, p: 'jump', icon: '☂', acct: '204', grp: 'throw' },   // v054: hold D
+  glideLen: { x: 265, y: 66, p: 'glide', icon: '≋', acct: '205', grp: 'throw' },
+  flame:    { x: 395, y: 118, p: 'hThrow', icon: '🔥', acct: '214', grp: 'throw' },   // v054: hold A
+  flamePow: { x: 520, y: 70, p: 'flame', icon: '✹', acct: '215', grp: 'throw' },
+  hVoid:    { x: 600, y: 268, kind: 'hub', p: 'root', label: 'VOID', grp: 'void' },
+  void:     { x: 640, y: 182, p: 'hVoid', icon: '◉', acct: '301', grp: 'void' },
+  voidCharge:{ x: 720, y: 108, p: 'void', icon: '⏳', acct: '302', grp: 'void' },
+  voidHeal: { x: 590, y: 90, p: 'void', icon: '✚', acct: '303', grp: 'void' },
+  hCat:     { x: 215, y: 528, kind: 'hub', p: 'root', label: 'Cat', grp: 'cat' },
+  catDive:  { x: 105, y: 432, p: 'hCat', icon: '🐟', acct: '401', grp: 'cat' },
+  lapcat:   { x: 222, y: 392, p: 'hCat', icon: '🤲', acct: '403', grp: 'cat' },
+  catBoard: { x: 100, y: 300, p: 'catDive', icon: '🏄', acct: '402', grp: 'cat' },
+  catFish:  { x: 150, y: 176, p: 'catBoard', icon: '⚓', acct: '404', grp: 'cat' },
+  catShoo:  { x: 260, y: 300, p: 'lapcat', icon: '🐾', acct: '405', grp: 'cat' },
+  catEel:   { x: 160, y: 120, p: 'catBoard', icon: '🐍', acct: '406', grp: 'cat' }   // v061: the eel catcher   // v058: on the island she chases rot
+};
+export const TREE_FULL = 24;                 // purchases until the ledger has fully turned into a tree
+export const GRP_COL = { ink: '#3f9a46', throw: '#a8743a', void: '#1f2a22', cat: '#f2994a' };
+// story told by the tortoise at the start of an ebb (by tide), plus flotsam memories to tap
+export const STORY = {
+  2: ["The crabs were here first. Be polite. Eat them politely.", "Tip: crabs make you tougher for good. Coconuts and the pool only top you up."],
+  3: ["See the white birds up north? Boobies. On the cliffs. They don't like visitors. Or anyone.", "Something washed up by the water. Go on, look."],
+  4: ["That smoke over the trees? Fire Mountain. Grumpy. Like me, but hotter.", "Tip: you stamp the nearest one. Wade so they come to you one at a time."],
+  5: ["That green glow out on the reef is new. Came with your yacht, I'd say."],
+  6: ["There's a spring up past the palms. Something old drinks from it. Older than me, if you can believe it.", "Tip: every stamp splashes. The one you hit takes it all, the ones around it get a little."],
+  7: ["Something swims under the surf now. Rot minnows, off the yacht's bilge.", "Fish tails, the cat says. She has plans for them."],
+  8: ["Bats live in a cave on the mountainside. They know the tunnels. They don't share.", "Tip: the cat learns from fish tails. Ask her in your Dream."],
+  9: ["Something big is coming. It smells like paperwork.", "Get stronger. I'd hate to break in a new accountant."]
+};
+export const FLOTSAM = {   // v017: what Jasper had with him on the yacht — one person or thread per find
+  3: { kind: 'card', lines: ["A laminated card: 'MY LEVERAGE — GUEST: JASPER ROBINSON, SURVEY (ACCOUNTS)'.", "Guest. Not crew. You remember being proud of that."] },
+  4: { kind: 'fish', lines: ["A dead fish, glowing faintly green. Where it lay, the sand has gone soft and dark.", "Whatever that is, it isn't from here."] },
+  5: { kind: 'bizcard', lines: ["'AURELIUS FERRANT · FERRANT CAPITAL · ZÜRICH'. On the back, in fountain pen:", "'Sign it, Jasper. Then you're one of us. — Aurelius Ferrant'"] },
+  7: { kind: 'drawing', lines: ["A child's drawing in a plastic sleeve: a house, a sun, a tall man with a green square. 'DADDY AND JAPSER AT WORK.'", "Ben's daughter drew it. Ben sat across from you for six years."] },
+  9: { kind: 'page', sketch: 'survey', lines: ["A single page. 'SURVEY — LOT 7'. An island's outline.", "This island's outline. Ferrant's people drew it before you ever saw it."] },
+  11: { kind: 'ledger', lines: ["Half a ledger, swollen with seawater. Columns in your handwriting.", "The totals have been… adjusted.", "Let it go. You don't keep books out here, accountant. You dream."] }
+};
+// v017: notes from someone who was here before — the green belt, one per visit
+export const FOREST_FINDS = [
+  { kind: 'stake', lines: ["A carved stake, grown into by roots.", "'Rot doesn't cross a living root. — Crusoe'"] },
+  { kind: 'tin', lines: ["A rusted tin. Inside, a folded note in the same hand:", "'It comes with every flood. It starts where the ships land, and it goes for the oldest tree.'"] },
+  { kind: 'lump', lines: ["A black lump in the moss. Warm. Pulsing, very slowly.", "Crusoe's note beside it: 'Burn the heart, not the edges.'"] },
+  { kind: 'bark', sketch: 'bark', minDay: 8, lines: ["A map scratched into bark. Not paths — animals.", "Boobies on the cliffs, bats at the mountain, crabs on the sand. And in the middle, a great tree with a heart cut into it."] },
+  { kind: 'button', minFlood: 9, lines: ["A brass button with an anchor: 'MY LEVERAGE · FIRST MATE'.", "He wore it with pride. He's still wearing the rest of the uniform. Somewhere. Coming closer."] }
+];
+// hidden skips: pet the cat in the right order (head, ears, chin, back, tail — never the belly)
+export const PET_CODES_STRAND = {   // v046: named after their tide
+  T5:  { seq: ['ears', 'back', 'ears', 'chin'], label: 'tide 5 · stage 4, Nosegrab' },
+  T12: { seq: ['chin', 'ears', 'tail', 'head'], label: 'tide 12 · stage 10, the first boss' },
+  T13: { seq: ['head', 'tail', 'chin', 'back'], label: 'tide 13 · right after the first boss — the island tutorial' },   // v061: Jan's run after the First Mate
+  T14: { seq: ['back', 'chin', 'back', 'ears'], label: 'tide 14 · the island map' }
+};
+// minimal sensible start values per skip point
+export const CHECKPOINTS = {   // v055: new prices (×2.5, ×1.8 a level), rum for VOID, max stamina every other tide
+  T5:  { flood: 4, day: 5, green: 60, maxSt: 11, upg: { dmg: 1, speed: 2, splash: 2 } },
+  T12: { flood: 10, day: 12, green: 60, maxSt: 14, rum: 2, upg: { dmg: 3, speed: 4, splash: 4, boostLen: 2, magnet: 1, cycleBoom: 1, void: 1, catDive: 1 }, forest: true, tails: 2 },
+  T13: { flood: 12, day: 13, green: 1500, maxSt: 12, rum: 6, tails: 30, upg: { dmg: 3, speed: 4, splash: 3, boostLen: 2, magnet: 1, glide: 1, void: 1, voidHeal: 1, catDive: 1, lapcat: 1, catBoard: 1 }, forest: true, palm: 6, map: true, koffer: true, glideLater: true },   // v061: from Jan's log, tide 13
+  T14: { flood: 11, day: 14, green: 120, maxSt: 15, rum: 2, upg: { dmg: 3, speed: 5, splash: 4, boostLen: 2, magnet: 1, cycleBoom: 1, void: 1, voidCharge: 1, catDive: 1 }, forest: true, tails: 2, map: true }
+};
+export const LINES = {
+  wake: ["Hm.", "Well. The sea spat one out.", "Yes, I talk. You wear a tie. We all have our flaws."],
+  follow: ["Follow the cat. She knows where the coconuts are."],
+  nut: ["Coconut water. Better than seawater. Worse than rum."],
+  crab: ["The cat suggests crab.", "The crab disagrees."],
+  walk: ["Too far. Hold the edge of the screen to walk. Or A and D, if you're civilised."],
+  dig: ["The cat's digging. Cats don't dig for nothing."],
+  digAgain: ["The cat still thinks something's buried over there. I'd listen to the cat."],
+  stamp: ["A rubber stamp. 'NO TAX'. In bright green.", "…Who exactly ARE you?", "Never mind. Look — the water's coming back.", "And things come with the tide."],
+  noStamp: ["Up the palm. Now. Don't argue."],
+  afterCut: ["Things. From the sea. Green ones. They'll be back with every high tide.", "Find whatever the cat was digging for. Quickly."],
+  firstFight: ["Surf it. You don't have to do a thing — the stamp works by itself.", "Grab the green hearts. They buy things."],
+  tides: ["Every low tide gives you a few tides — the little cyan waves round the compass, bottom right. That's your time.", "Water, crabs, the palm forest, digging: each costs a tide. You won't manage everything. Choose.", "When they're spent, nothing happens until you say so: tap “Wait for the tide”. And the more you find out about this place, the more time you get."],
+  tidesAgain: ["N tides this low tide — the cyan waves round the compass, bottom right. Each one is a thing you can do. They don't keep."],   // v062
+  tidesLeft: ["You left N tides on the sand last time. They don't keep, you know — the sea takes them back with the flood."],
+  catWatch: ["The cat is watching. Taking notes, I expect."],
+  firstKill: ["Did you see that? Neither did the monster."],
+  green: ["Green blood. Your stamp seems to like it.", "See the moon button, bottom left? That's your Dream. Close your eyes there and you'll see what the hearts can buy — and what you could become.", "Don't make that face. Dreaming is work too. Out here it's the only planning that counts."],   // v056: the Dream replaces the Ledger
+  clam: ["Zebra mussels. Hitched a ride on the yacht's hull. Invasive. Like you."],
+  clamTip: ["Those mussels came on the yacht's hull. So did that green glow on them. The island didn't glow before.", "Tip: a fresh mussel shrugs off a lot. Wear it down first. And sometimes they carry rum. Don't ask me how."],
+  waitTip: ["Nothing left to do? Then wait for the tide. The sea doesn't."],
+  fish: ["Rot minnows. Under the board, where your stamp can't reach.", "Only the dive at the end of a dash gets them. The cat is very interested."],
+  louse: ["Wake lice. Glassy little things off the yacht's hull — they ride your wake and pile up behind you. The stamp slips right off them."],
+  wasp: ["Paper wasps. Made of… invoices? Yours, I'd guess. They sting like late fees."],
+  bailiff: ["That's not a wave. That's the yacht's First Mate. What the rot left of him.", "Mind the folder. He kept the owner's books, too. It throws paperwork."],
+  bossWin: ["It dropped a folder. A survey of THIS island. Signed by… you?", "That's a map, dear. Bottom right, on the compass — tap the island. It is all out there now: a banyan, the rot's nests, and more of me.", "Go and look. From now on every tide is beach AND island."],
+  turret: ["The banyan sent roots down to the beach. Thorny ones. Friends of yours, apparently."],
+  waveWin: ["Not bad. For an accountant.", "The sea backs off. Grudgingly.", "Wave cleared. Write that down, you love writing things down.", "Huh. You're improving. Don't tell anyone."],
+  boom: ["Throw it with S. Or tap the bottom of the screen. It flies along the wave and comes back. Usually."],
+  void: ["W. Or the top of the screen. The roots answer — from one finished monster to the next."],
+  voidBuy: ["VOID. It drinks the hearts you collect. When you'd go under, it pulls you back up.", "Root lightning, a flood, and you breathing again. Don't make a habit of it."],
+  lapBuy: ["She'll purr for you right here now. Four strokes, one purr, once a tide — she has standards."],
+  rum: ["Oh. Oh my. That's the good stuff.", "Hic. You're… hic… not as dull as you look."],
+  tip: ["Hic. Listen. LISTEN. Up past the palms. Fresh water. Go up. UP!", "…zzz"],
+  wakeUp: ["Ugh. My head. Don't speak. Especially don't stamp."],
+  thicket: ["Too thick up there. For now."],
+  win: "Well. That was unexpected. Even for me.",
+  lose: ["Again? Remarkable consistency.", "The monsters send their regards.", "Eat more crab. Become more crab.",
+         "You fought bravely. Briefly, but bravely.", "Tadpoles. You lost to tadpoles. I'll remember this."],
+  idle: ["I've been on this rock for a hundred and forty years. You're new.", "The cat likes you. I'm reserving judgement.",
+         "Coconuts don't grow faster if you stare at them.", "Mind the tide. It minds you.", "If you happen across any rum… I'm just saying."],
+  petGain: ["See? A purring cat beats coconut water. She'll do it once every tide. Don't get greedy."],
+  petTip: ["She's circling your legs. That means: a proper scratch. Hold her a good while.", "A happy cat is worth a sip of water. Don't ask me how."],
+  noRum: ["No rum? Then why are you poking me?"]
+};
+// v030: the briefcase washes up on the beach a few tides after the island opened (the island reads the memos)
+export const CASE_FIND = ['A leather briefcase, wedged between two rocks. Brass locks. Gold lettering: AURELIUS FERRANT.', 'Inside, bone dry: memos. Someone on the Board is still writing to this island.', 'The lid clicks. A voice, very polite: "Bottom left, darling — that\'s where I sit now. Once you are on the island I read you the Board\'s memos. Intercepted, naturally."'];
+export const SHORT = { dmg: 'Heavier Stamp', speed: 'Faster Stamping', splash: 'Wider Splash', jump: 'Jump [D]', boostLen: 'Long Boost', magnet: 'Heart Magnet', cycle: 'Wall Leap [A]', cycleBoom: 'Heavy Boomerang', cycleDive: 'Deep Dive', void: 'VOID', voidCharge: 'Quick Charge', voidHeal: 'Second Wind', glide: 'Glider [hold D]', glideLen: 'Long Glide', flame: 'Flamethrower [hold A]', flamePow: 'Hotter Flames', lapcat: 'Lap Cat', catDive: 'Fishing Dive', catBoard: 'Her Own Board', catFish: 'Deeper Dives', catEel: 'Eel Catcher', catShoo: 'Rot Chaser' };
+export const CAT_VOICE = { louse: { k: 'mrrp', txt: 'mrrp?' }, tadpole: { k: 'mau', txt: 'mau!' }, clam: { k: 'mau', txt: 'mau!' }, fish: { k: 'mrrp', txt: 'mrrp!' }, repocrab: { k: 'hiss', txt: 'HSSS!' }, wasp: { k: 'hiss', txt: 'hsss!' }, bailiff: { k: 'yowl', txt: 'MIAAAU!' }, bailiff1: { k: 'yowl', txt: 'MIAAAU!' }, bailiff2: { k: 'yowl', txt: 'MIAAAU!' } };
+
+// ------------------------------- INSEL (island map) -------------------------------
+export const LM = {
+  bay: [.47, .765], spring: [.505, .655], palms: [.45, .68], breadfruit: [.565, .675], crabs: [.565, .785], flotsam: [.405, .775],
+  cave: [.372, .488], birds: [.19, .30], lagoon: [.80, .52], riptide: [.47, .90]
+};
+export const REGIONS = {
+  1: { name: 'Castaway Cove', col: '255,236,170' }, 2: { name: 'Booby Cliffs', col: '255,255,255' },
+  3: { name: 'Fire Mountain', col: '255,170,120' }, 4: { name: 'Lagoon & Reef', col: '150,240,230' }
+};
+export const RULES = {
+  gezeitStart: 8, targetsPerFlood: 2, greenPerTide: 9, greenStart: 18,
+  harvestYield: 2, accountantBonus: 1, exhaustTides: 3, cocoMax: 10,   // v033: coconuts stop at 10
+  costMove: { beach: 1, grove: 1, jungle: 2, slope: 2, tangle: 2, lava: 2, water: 99 },
+  nestBlight: 2, wreckBlight: 3, rootThresh1: 10, rootThresh2: 20,
+  catSpeed: 62, catRadius: 30, scoutCover: .6,
+  burnRum: 3, nourishCost: 4, nourishGreen: 6, maxRot: 3, maxRoot: 3, merge: 1 / 3, cleanSap: 6, cleanMax: 4,
+  baseTide: 8,                                                      // the map's own tide (deep blue)
+  sapYield: { banyan: 3, grove: 2, jungle: 2, beach: 1, slope: 1, tangle: 1, lava: 0 }, fruitSap: 1,
+  growth: [6, 10, 15, 21, 28, 36, 45, 55], sapPerRoot: 3, towerSap: 24, towerGreen: 90, ablegerSap: 45
+};
+// Wandel is spent like science: each unlock gives Crusoe more say over what the banyan does
+export const UNLOCKS = [
+  { id: 'listen', cost: 2, name: 'Listen', desc: 'Befriends the banyan (2 free Wandel, on its tile): it drinks sap, grows, and its screen opens. — The tortoise translates.' },
+  { id: 'rootOrder', cost: 3, name: 'Root order', desc: 'Tap any rooted tile: the banyan strengthens that root next. — It listens. Mostly.' },
+  { id: 'coarse', cost: 4, name: 'Coarse priority', desc: 'Send all sap into growth (more levels, more tiles worked) or all into production (roots, orders). — All or nothing, like a quarterly report.' },
+  { id: 'tower', cost: 6, name: 'Beach tower', desc: 'A thorn tower on Crab Beach: 30 💚, then 24 production sap. It does your beach chores at the start of each ebb with your unused beach tides — crabs, coconuts, rum for the tortoise (compass wheel: Silver). — The beach, delegated.' },
+  { id: 'tower2', cost: 10, name: 'Tower II', desc: 'A second ring: 30 💚, then 24 production sap. The tower also rides beach stages for you — up to two past your own last ride — for about 70 % of your haul (compass wheel: Gold). — The beach fights for itself.' },
+  { id: 'fine', cost: 8, name: 'Fine priority', desc: 'Split the sap in quarter steps: 0 / 25 / 50 / 75 / 100 % growth. — You really are an accountant.' },
+  { id: 'cleanRot', cost: 8, name: 'Clean rot', desc: 'The banyan scrubs rot before the flood strikes: 6 production sap per −1 rot, up to 4 per flood — on tree tiles and tiles with root 3. Never nests. — A tree with a broom.' },
+  { id: 'cleanRot2', cost: 10, name: 'Clean rot II', desc: 'The banyan also scrubs tiles with root 2. — Lower standards, cleaner island.' },
+  { id: 'deepRoots', cost: 12, name: 'Deep Roots', desc: 'Every tree reaches one ring further: root 3 up to 2 steps away (was 1), root 2 at 3 steps, root 1 at 4. — The roots go where you can\'t see them.' },
+  { id: 'ableger', cost: 10, name: 'Offshoot', desc: 'A cutting: 45 production sap, the banyan shrinks a level. Plant it on the cliffs next to your roots: a second banyan. — It shares sap, orders and lessons.' },
+  { id: 'elf', cost: 40, name: 'The Dark-Wood Elf', desc: 'Let the banyan take in the briefcase, for good. It will not come out a briefcase. (Needs the briefcase.)' }   // v034: Fi · v056: Choose tiles is gone
+];
+export const SIM = {"typical":[[11,0,1,13,13,40,11,15,0,"map_unlocked"],[11,1,0,20,0,60,15,15,0,""],[12,1,0,18,36,42,18,18,0,""],[13,0,1,15,22,35,12,21,0,""],[13,1,0,18,17,36,21,21,0,""],[14,1,0,21,17,40,23,23,0,"new_enemy_beaten"],[15,0,1,19,18,41,15,25,1,"root_turret"],[15,1,0,26,27,40,25,25,1,""],[16,1,0,26,32,34,27,27,1,""],[17,0,1,16,0,50,21,29,1,""],[17,0,2,16,18,48,17,29,1,""],[17,1,0,22,35,35,29,29,1,"new_enemy_beaten"],[18,1,0,29,27,37,31,31,1,""],[19,0,1,15,17,35,21,33,1,""],[19,0,2,19,0,54,22,33,1,""],[19,1,0,29,0,83,33,33,1,""],[20,0,1,20,56,47,29,35,1,""],[20,0,2,19,0,66,29,35,1,""],[20,0,3,17,48,35,26,35,1,""],[20,1,0,29,0,64,35,35,1,"new_enemy_beaten"],[21,1,0,34,49,49,37,37,1,""],[22,0,1,20,28,41,23,39,1,""],[22,0,2,22,0,63,32,39,1,""],[22,0,3,18,35,46,25,39,1,""],[22,1,0,28,36,38,39,39,1,""],[23,0,1,21,22,37,26,41,1,""],[23,1,0,28,29,36,41,41,1,""],[24,1,0,37,27,46,43,43,1,""],[25,0,1,24,26,44,33,45,1,""],[25,0,2,24,0,68,30,45,1,""]],"tough":[[11,0,1,16,25,31,10,15,0,"map_unlocked"],[11,0,2,11,0,42,11,15,0,""],[11,0,3,11,31,22,9,15,0,""],[11,1,0,22,21,23,15,15,0,""],[12,0,1,15,10,28,13,18,0,""],[12,0,2,12,16,24,10,18,0,""],[12,1,0,20,0,44,18,18,1,"root_turret"],[13,0,1,15,25,34,13,21,1,""],[13,1,0,24,0,58,21,21,1,""],[14,0,1,16,56,18,16,23,1,""],[14,0,2,13,11,20,18,23,1,""],[14,0,3,18,16,22,14,23,1,""],[14,0,4,14,19,17,18,23,1,""],[14,1,0,21,16,22,23,23,1,"new_enemy_beaten"],[15,0,1,17,0,39,13,25,1,""],[15,0,2,17,27,29,16,25,1,""],[15,0,3,18,19,28,20,25,1,""],[15,0,4,13,20,21,17,25,1,""],[15,0,5,14,11,24,20,25,1,""],[15,0,6,17,26,15,14,25,1,""],[15,0,7,14,11,18,13,25,1,""],[15,1,0,24,21,21,25,25,1,""],[16,1,0,28,0,49,27,27,1,""],[17,0,1,16,33,32,24,29,1,""],[17,1,0,22,24,30,29,29,1,"new_enemy_beaten"],[18,0,1,17,0,47,20,31,1,""],[18,0,2,20,43,24,18,31,1,""],[18,0,3,16,0,40,24,31,1,""],[18,1,0,26,30,36,31,31,1,""],[19,0,1,19,0,55,27,33,1,""]],"smooth":[[11,0,1,11,9,42,10,15,0,"map_unlocked"],[11,0,2,12,7,47,12,15,0,""],[11,0,3,16,24,39,12,15,0,""],[11,1,0,17,7,49,15,15,0,""],[12,0,1,13,12,50,12,18,0,""],[12,1,0,17,0,67,18,18,0,""],[13,0,1,11,23,55,11,21,1,"root_turret"],[13,0,2,16,27,44,15,21,1,""],[13,1,0,24,29,39,21,21,1,""],[14,0,1,13,0,52,15,23,1,""],[14,1,0,22,0,74,23,23,1,"new_enemy_beaten"],[15,1,0,24,32,66,25,25,1,""],[16,1,0,28,45,49,27,27,1,""],[17,0,1,19,0,68,23,29,1,""],[17,1,0,23,0,91,29,29,1,"new_enemy_beaten"],[18,0,1,15,55,51,19,31,1,""],[18,1,0,30,33,48,31,31,1,""],[19,0,1,20,20,48,20,33,1,""],[19,0,2,17,0,65,24,33,1,""],[19,1,0,25,0,90,33,33,1,""],[20,0,1,20,43,67,25,35,1,""],[20,1,0,26,39,54,35,35,1,"new_enemy_beaten"],[21,0,1,19,38,35,21,37,1,""],[21,1,0,34,32,37,37,37,1,""],[22,1,0,29,11,55,39,39,1,""],[23,0,1,20,0,75,28,41,1,""],[23,0,2,19,40,54,28,41,1,""],[23,1,0,29,34,49,41,41,1,""],[24,0,1,24,28,45,33,43,1,""],[24,1,0,30,26,49,43,43,1,""]]};
+// The First Mate does not die while he has nests: he is demoted, recovers for three tides, and comes back as a wave member
+export const BOSS = { name: ['The First Mate', 'The Cabin Boy', 'The Bilge Rat'], short: ['First Mate', 'Cabin Boy', 'Bilge Rat'], hp: [80, 45, 25], slam: [3, 2, 1], recover: 3 };
+export const STAGES = [[0, 'Accountant'], [15, 'Castaway'], [30, 'Synthesis'], [45, 'Islander'], [60, 'Surrender']];   // v061: stretched for the long game
+export const OMEN_TYPES = ['beach', 'grove', 'jungle', 'slope'];
+export const RULECARDS = [
+  { id: 'tide', title: 'Tide', ill: 'tide', text: '<b>8 tide 🌊 every ebb</b> for the island: walking, protecting, cleansing, planting all cost tide. What you don\'t spend is gone.<br><br><i>The sea doesn\'t do savings accounts. Watch the coast: the less tide left, the closer the waves.</i>' },
+  { id: 'spring', title: 'Spring tide', ill: 'spring', text: '<b>+1 ✨ every tide, for good</b> — earned by real deeds: the banyan, roots around it, a nest burned, the gecko, the beach tower, an offshoot, an offensive survived. Shared with the beach, always spent last.<br><br><i>The golden kind. You can\'t harvest it. You have to earn it.</i>' },
+  { id: 'rot', title: 'Rot & arms', ill: 'rot', text: '<b>Rot 1–3.</b> Rot tiles give no sap and no harvest; from rot 2 nothing can be planted. Rot spreads only next to rot: the strongest rot neighbour is the main arm, every other one adds +1.<br><br>On the map the rot builds: <b>rot 1</b> surveyors, <b>rot 2</b> sheds and a foundation, <b>rot 3 a trebuchet</b>.<br><br><i>The yacht leaks into everything — and it brings its own engineers.</i>' },
+  { id: 'nests', title: 'Nests & merge', ill: 'nests', text: 'A <b>nest</b> can\'t be struck. Every flood it feeds <b>+1 rot</b> to the weakest tiles it owns. When two rot networks touch they <b>merge</b>: each nest also feeds a third of the other\'s tiles. New nests only come with the story.<br><br><i>Synergies — theirs, not ours.</i>' },
+  { id: 'omen', title: 'Bad Omen', ill: 'omen', text: '<b>Bad Omen:</b> each flood the rot picks one kind of land (top centre); every network sends one spearhead (black tendril) into the nearest tile of that kind — even under the clouds.<br><br><b>Trebuchet:</b> a rot-3 tile fires at its own root first, −1 every flood. Once the root is gone it fires at the neighbour nearest the banyan, next flood: the ball always lands — a root there loses a step; only a tile without a root gets +1 rot. Cleanse the trebuchet below 3 and it falls apart.' },
+  { id: 'defence', title: 'Defence', ill: 'defence', text: '<b>Defence = root strength + healthy rooted neighbours (max 2) + protected + a friend + you</b>, standing there. Odds that the tile holds: even 50 %, one ahead 80 %, two 92 %, three+ 99 %.<br><br>If it falls: +1 rot and its root −1. A root at 0 <b>withers</b> — it grows back by itself once the tile is clean, if a rooted tile is next door. New roots start at strength 2. Defence two above the attack pushes the rot back.<br><br><i>Hold a line, not a dot.</i>' },
+  { id: 'sap', title: 'Sap', ill: 'sap', text: 'The banyan works as many <b>healthy rooted tiles</b> as its level: banyan 3 sap · grove & jungle 2 · beach & slope 1 · food +1. The sap splits into <b style="color:#3f8a33">growth</b> (levels) and <b style="color:#8a5a2a">production</b> (roots, towers, offshoots, cleaning).<br><br><b>Harvest:</b> every healthy rooted food tile brings in +1 🍞 or 🥥 per flood, +1 more if protected. Robinson doesn\'t pick — the roots do.<br><br><b>Rot 3 on a tree</b> burns levels to push the rot back (and the fire hits nests within two steps). At level 1 the old banyan dies — and the island with it.' },
+  { id: 'boss', title: 'The First Mate', ill: 'boss', text: 'Bosses don\'t die, darling. They get <b>demoted</b>. Beat one on the beach and he crawls back into one of <b>his nests</b> — the ink-dark ones — and sulks for <b>three tides</b>. Then he walks in with a normal wave: thinner, smaller, still both attacks.<br><br>Scrub the nest he sits in and he has to move: one day of sulking lost. Scrub his <b>last</b> nest and he is gone for good. No fight needed. Your briefcase reads his mail; listen to it.' },
+  { id: 'befall', title: 'Befall', ill: 'befall', text: '<b>Befall</b> rises by the rot level of every rot tile you step on, +1 per scrub, +2 if you end the ebb on rot. It falls when you finish a job (rot to 0: −2, a nest gone: −4) and every flood by half the defence of your tile.<br><br>From 5 every step costs +1 tide, from 8 +2. At 10 you collapse and lose an ebb.<br><br><i>Spores, ink, paperwork — it gets into the lungs.</i>' },
+  { id: 'reach', title: 'Root reach', ill: 'reach', text: 'Roots are only as strong as their line to the nearest tree. <b>Tree tile and 1 step:</b> up to 3 · <b>2 steps:</b> up to 2 · <b>3 steps:</b> up to 1 · <b>4+:</b> nothing grows. <b>Deep Roots</b> pushes all of it one step further.<br><br><i>Far places need a new tree. That is what offshoots are for.</i>' },
+  { id: 'nestfight', title: 'Holding a nest', ill: 'nest', text: '<b>Burn</b> a nest down to rot 0 (2 tide + 3 🥃 a go, −2 rot — Cleanse does nothing on a nest) and it lies <b>exposed</b> — open, but not dead. Leave it and it grows back.<br>To finish it, <b>hold it</b>: end the ebb on the nest. At flood the nest fights back — a fight <b>instead of</b> the beach fight. If its boss is at home, he fights too.<br><br>Win: the nest is gone for good (Befall −4). Lose: it gets +1 rot back, you collapse and lose an ebb.' },
+  { id: 'armies', title: 'Armies', ill: 'army', text: 'During a Board offensive, <b>armies</b> crawl out of the nests (the first offensive: exactly three, strength 5, 6 and 8 — the last one, from the far end, led by the Repo Crab). Each has a <b>strength</b>.<br><br><b>March.</b> Every flood they walk towards the banyan — 2 steps on rot, 1 elsewhere. The red arrow shows next flood\'s way. Roots don\'t stop them. A field with an army is visible while it stands there.<br><br><b>Targets.</b> The beach tower, offshoots, the banyan — and you. Against a building they fight like rot: <b>strength vs the tile\'s defence</b>, same odds. If it falls, the building loses a level (the tower falls, an offshoot at level 1 dies, the banyan never drops below 1). If it holds by 2 or more, the army loses 1 strength; a narrow hold just stops it for a flood.<br><br><b>You.</b> An army that reaches your tile fights you first (instead of the beach fight). Win: it is gone. Lose: you collapse. You can also <b>attack</b> an army on or next to your tile: 2 tide per fight, as often as your tide lasts. On a tree you get help: the gecko and a small thorn tower.' },
+  { id: 'wandel', title: 'Wandel', ill: 'wandel', text: '<b>Wandel</b>: how much of the island is in you. Kind deeds raise it. The <b>total</b> sets your stage — at 15, 30, 45 and 60 — with further sight, a stronger hand, faster growth. Every point is also <b class="gold">free Wandel</b> to teach the banyan; spending doesn\'t lower your stage.<br><br><i>Accountant, Castaway, Synthesis, Islander… and then?</i>' }
+];
+export const CAVE_TEXT = {"entrance": {"gate_prio": "The gecko has gone flat against your collar. It's shaking, darling. Geckos don't shake. They climb, they lick things, they judge you — they don't shake.\nI'll say it once. Whatever lives under the mountain doesn't eat. It collects. Take the cat if she'll come. She'll come. She always comes.", "bite": "The gecko bites. Hard — through the sleeve, into the skin, and it doesn't let go. Its eyes are fixed on the dark behind the gate. It isn't angry. It's begging.", "go": "You peel it off, finger by finger. It runs to the gatepost and stays there, pressed into the rust, watching you.\nThe cat walks past you into the dark as if she has been here before."}, "chambers": [{"id": "till", "title": "The Till", "motif": "till", "finds": ["The gecko knew before Jasper did.\n\nAll the way up the narrow cut from the cliffs it had ridden on his collar; halfway up it went flat and still, its heart going like a sewing machine. \"It's only a gate,\" he told it — a lie he had learned from his grandmother, who used it on everything. The brass key from what was left of the First Mate turned too easily. The gate did not scream. It sighed, as if it had been holding its breath for someone.\n\nThe cat had not stopped at all. She had come ashore with him, a scrap of wet orange fur pulled from the hold of a sinking yacht, and now she walked into the mountain with the unhurried purpose of an animal on its way to somewhere she knows. He followed her, and the light did not come with him.\n\nIt was the smell he recognised first: wet wool and paraffin, liquorice, and the cold breath of the sea coming in under a door. The green stamp in his hand woke and glowed — it drank from him as it glowed, a small warm thirst under the ribs — and the thin beam found white-painted planking where there should have been rock. In the middle of the cave, as though the mountain had grown around it like a tree around a nail, stood the counter of his grandmother's shop.", "He knew every inch of it. The shop on Fennholm — a hallig, one of the tiny unprotected islands in the North Sea where a few families live on man-made mounds and the sea comes over the grass whenever it likes. The brass till. The jar of liquorice laces with the chipped lid. *Count the change twice, Jasper. People trust a shop that counts twice.*\n\nThe till rang. No hand on it. In the dark beyond the beam something took a long, slow breath — the patient breath of a clerk who will wait as long as it takes for you to finish filling in the form.\n\nBeside the till lay Oma Hilke's ledger: green linen, the spine mended with brown tape.\n*October. Till short: 40 Mark. Asked the ferryman. He swears he paid. Wrote it off.*\nAnd further down, pressed harder into the paper: *Ferryman doesn't greet me any more.*\n\nHe remembered the forty Mark — a fortune, for a nine-year-old. The brass compass in the chandler's window on the mainland, a seal engraved on its lid. Walking out over the mudflats with Jana, the girl from the next mound who was afraid of nothing, and saying in a voice that hardly shook: *Look what I found.* He remembered old Harro the ferryman, who used to let him sit in the wheelhouse, and who stopped winking at him that winter and never said why.", "There was a pen on the ledger now. Not his own — that one was in his breast pocket, a heavy black fountain pen a very rich man had given him when he was eleven, carried ever since like a medal. This was a cheap blue ballpoint on a string, the kind Oma kept by the till.\n\nThe breathing had come to the very edge of the beam. It smelled of paper left too long in the rain.\n\n*The book is short,* said nobody. It did not say it aloud; it said it in the place behind his eyes where he did his sums. *Make it whole.*\n\nThe cat sat down on the open page, right on top of the forty Mark, her tail wrapped tight around her paws."], "choices": [{"k": "A", "label": "Write the truth.", "line": "\"Jasper, 40 Mark. Compass for Jana.\"", "t": {"carry": 1, "paySelf": 1}, "fx": {"inf": 2}}, {"k": "B", "label": "Leave it short.", "line": "\"Some things you don't count\" — her own words. Harro stays the thief.", "t": {"let": 1, "payOthers": 1}, "fx": {}}, {"k": "C", "label": "Balance it.", "line": "One neat line in the margin: \"Correction: counting error.\"", "t": {"hold": 1, "shift": 1}, "fx": {}}], "hint": {"A": "The cat licks your hand once, rough and warm, before she walks on.", "B": "The cat jumps down and goes ahead without looking back.", "C": "The cat stares a long time at the place in the dark where the breathing was."}, "read": {"A": "You wrote yourself into her book.", "B": "You let a ferryman carry your forty Mark.", "C": "You balanced her book."}}, {"id": "seal", "title": "Landunter", "motif": "seal", "finds": ["Whatever he had written, the counter was gone when he looked up. [[c1=C|The line in the margin had been beautifully written. His handwriting always was.]] The tunnel went on downward. The floor grew wet — a shine on the rock, then a film of water, then the cold seeping through his shoes — and when he stopped, the water did not. It rose around his ankles, dark and patient, and from far off came the sound of wind with a weight in it.\n\nOn a hallig there is a word for this: *Landunter.* Land under. The night the sea comes over the island and the only dry ground left is the mound the houses stand on — the warft — with black water all around it.\n\nHe was thirteen, and it was that night. Below the warft, on the low meadow, was the sheep pen: a square of fence on the grass. The sea was already pouring in over the far corner of the field. Inside the pen the sheep could not get out. Outside it they could have run up the slope to the dry ground on their own.\n\nOpa Jens stood at the door in his oilskin. He never shouted. He put his big hand on Jasper's head, once, the way you test whether a post is set firm. *\"The pen, Junge. Open the gate and get back up here. I'll see to the sluice.\"* Then he was gone into the rain towards the dyke.", "Jasper reached the gate. He remembered that clearly: the iron latch slick with rain, the sheep crushing against the bars, their eyes white in the torchlight. All he had to do was lift the latch.\n\nHe didn't. He had nearly drowned once, out on the mudflats with Jana, and his body remembered it before his mind did. The water pulled at his legs. His hand was on the latch and it would not move, and he stood there while the water climbed past his knees.\n\nA big shape came wading back out of the storm. Opa Jens must have seen the torch standing still and understood. He did not say a word. He moved Jasper gently aside, lifted the latch, swung the gate open — and the sheep poured past them up the slope in one grey wave. When Jasper looked back, there was only water.\n\nThey found his grandfather three days later on the seal bank, a sandbank where the seals haul out to rest. The seals lay around him in a ring and would not move for the boat. Oma said he had gone down for the sheep. Everyone said it. The gravestone says it too: *Er ging für die Tiere.* He went for the animals.\n\nNobody ever asked Jasper about the gate. He had never been sure himself whether he remembered it — or whether, over the years, guilt had put on the clothes of a memory.", "The water in the cave was at his waist. The cat had climbed onto a ledge and was crying — a thin, high sound he had never heard her make — and he did not go to her. He was looking at his own hand.\n\nA seal lifted its head out of the black water an arm's length away. Its eyes were grey and patient and very old, and they were his grandfather's eyes. Opa used to say it every time the tide came too high: *Das Meer ist kein Feind. Es ist ein Gläubiger.* The sea is no enemy. It is a creditor; it only takes what it is owed.\n\nBehind him the breathing had come down into the water too, unhurried, the way you wade when you know exactly where everyone is.\n\n*Which one is true,* said the dark. *The stone — or the hand?*"], "choices": [{"k": "A", "label": "The hand.", "line": "\"I froze. He came back for me.\"", "t": {"carry": 1, "paySelf": 1}, "fx": {"inf": 2}}, {"k": "B", "label": "The stone.", "line": "\"He went for the animals. Let it be what it was.\"", "t": {"hold": 1, "shift": 1}, "fx": {}}, {"k": "C", "label": "The sea.", "line": "\"It took what it was owed.\"", "t": {"let": 1, "payOthers": 1}, "fx": {"banyanRot": 1}}], "hint": {"A": "The cat stays close all the way out, wet and warm against your leg.", "B": "The cat shakes herself dry and trots ahead as if nothing happened.", "C": "Far above you, you feel rather than hear the tide rise against the island."}, "read": {"A": "You opened your hand.", "B": "You kept the stone.", "C": "You paid the sea with an island."}}, {"id": "rope", "title": "The Rope", "motif": "rope", "finds": ["The water drained away as if someone had pulled a plug, and the cave was full of rain instead — fine, cold, city rain, smelling of diesel and wet tar. The rock under his feet had become a flat roof. Below, the harbour cranes of Hamburg stood in the dark like herons.\n\nHe was nineteen. It was the third week of the only summer he had ever spent doing nothing useful. Jana had come back from two years on a cargo sailer with salt in her hair and a laugh that took up the whole roof, and for three weeks they had walked the city at night as if it belonged to them.\n\nShe was laughing at him now, for holding an umbrella on a roof. In his jacket, folded four times, was a letter: *The Ferrant Foundation is pleased to offer you a full scholarship…* Ferrant. The rich man with the fountain pen, the man whose companies had bought the hallig out from under his grandmother after Opa died. *Come to me when you're grown,* he had said at the funeral. *You will never be the one who has to sell again.*\n\nJasper had not told Jana about the letter. She already knew. She always knew things before he said them.", "Her boat lay at the jetty below the warehouses: the *Seehund*, small and old and entirely hers, smelling of diesel and wet rope. She jumped aboard and held out the bow line.\n\n*\"Cast off with me. Copenhagen, then wherever. You count, I steer.\"*\n\nThe rope was wet and heavy in his hands. The letter was in his pocket. He knew — he had always known — that if he got on that boat he would never be in a room with Ferrant, never learn how men like that count, never be able to count back.\n\nIn the cave, a second rope hung where there was no ceiling to hang from: a loop, quite still, just at the edge of the beam. He did not look at it. The cat did not look at it either, very carefully, the way you don't look at a dog you hope hasn't seen you.\n\n*\"Man kann nicht zwei Schiffe gleichzeitig steuern,\"* Jana said. You can't steer two ships at once. She said it kindly. That was the worst part.", "The breathing was somewhere in the rain now, patient as a harbour master.\n\nHe knew how this ended — he had lived it. Zürich. Seventeen years of glass offices and numbers. A career so fast people called him the youngest this and the youngest that. And it was only because he had been in Zürich, deep inside Ferrant's company, that he had been there when Ben found the papers. Without that, nobody would ever have known what was in the containers.\n\n*Every rope,* said the dark, *is tied at two ends.*\n\nThe cat sat on the wet coil of line at his feet and would not get off it."], "choices": [{"k": "A", "label": "Cast off.", "line": "\"Wherever.\" — the letter dissolves in the rain. Ben will face the papers alone.", "t": {"let": 1, "payOthers": 1}, "fx": {}}, {"k": "B", "label": "Keep it tied.", "line": "Go to Zürich. Wave from the jetty. Seventeen years alone.", "t": {"hold": 1, "paySelf": 1}, "fx": {}}, {"k": "C", "label": "Throw it back.", "line": "\"You'd have left anyway.\"", "t": {"shift": 1, "let": 1}, "fx": {}}], "hint": {"A": "The loop is gone. The cat hesitates a long moment before the next passage.", "B": "The cat lies down on the rope and does not want to let it go.", "C": "The cat hisses — not at the dark. At you. Just once."}, "read": {"A": "You cast off.", "B": "You kept the rope tied.", "C": "You threw her the rope and called it her fault."}}, {"id": "chair", "title": "The Chair", "motif": "chair", "finds": ["The rain stopped as if a door had closed on it. Carpet under his feet, the faint hum of air conditioning, and a long, low room lit only by green exit signs. A window wall full of a city at night. The fortieth floor of Ferrant Capital, Zürich, after hours.\n\nHe had worked here for twelve years. He had been the youngest Head of Structured Finance the firm ever had — which meant, translated out of banking, that he was very good at moving other people's money through places where nobody could see it.\n\nThe cleaners had been; the bins were empty, except one. At the end of the row stood Ben Okafor's desk. A plastic box with the last two puff-puffs from Friday — Ben brought them every week, his mother's recipe, sugar gone grey now. A child's drawing taped to the monitor: a house, a sun with a face, a tall man holding a green square. *DADDY AND JAPSER AT WORK.* Grace had never got his name right. Ben had laughed about it for a month.\n\nBen's chair turned towards him, very slowly. There is no draught on the fortieth floor.", "The printouts were where Ben had left them, under his keyboard. Shipping manifests. Container numbers. Laboratory stamps. *Organism package for complete displacement of native flora and fauna within 36 months.* A company name on every page: *NOTAX Holdings Ltd.*\n\nNOTAX. Ben had given him the stamp himself, as a joke, the day Jasper was promoted — a green rubber stamp from a novelty shop, *so you don't forget what we really do here.* Somebody upstairs had liked the joke so much they had used it as the name of a shell company. The stamp in Jasper's hand right now, the one that glowed and drank from him, was that stamp.\n\nOn top lay Ben's sticky note, in his round capitals: *M — we can't un-know this. Coffee tomorrow? B.*\n\nThere was no coffee. There was a bridge near Rapperswil, a wet road, and a car that, according to the police report, \"left the carriageway\". Grace had been six. She would be eight now.", "Somewhere in the dark office a phone began to ring — a child's ringtone, a cartoon tune — and stopped. The breathing was among the desks, moving from one to the next, as if reading over shoulders.\n\nThe papers in his hand were the reason he was on this island at all. Ferrant had offered him the survey of a nameless Pacific island as a partner's reward; Jasper had taken it to photograph the containers where they landed, to bring proof that no lawyer could argue away. He still had the copy. He could still send it, someday, to Jana — to the world.\n\nThe cat climbed into Ben's chair and curled up in it, as if keeping it warm for someone.\n\n*Tell me,* said the dark, *what he died for.*"], "choices": [{"k": "A", "label": "For the truth.", "line": "Everything goes out, Ben's name on it. Grace will know why. So will Ferrant's lawyers.", "t": {"let": 1, "payOthers": 1}, "fx": {}}, {"k": "B", "label": "For nothing I'll tell her.", "line": "Keep his name out of it. Let her have an accident instead of a reason.", "t": {"hold": 1, "paySelf": 1}, "fx": {}}, {"k": "C", "label": "For Ferrant's balance sheet.", "line": "\"He did this. Not me.\"", "t": {"shift": 1, "hold": 1}, "fx": {}}], "hint": {"A": "The cat stays curled in the chair until you call her. Twice.", "B": "The briefcase plays one second of an old voicemail on its own. Then silence.", "C": "Behind you, the chair tips over without a sound."}, "read": {"A": "You spent Ben's name on the truth.", "B": "You kept Ben's name.", "C": "You gave Ben to Ferrant."}}, {"id": "plate", "title": "The Plate", "motif": "plate", "finds": ["Music, too loud and tinny, from a bad speaker. Fairy lights. The open-plan floor had become a long table covered in paper plates, and around it stood everyone he had ever worked with, holding drinks, leaning in, turned towards each other in the easy way of a Friday afternoon. Ben's puff-puff was going round.\n\nNobody had a face.\n\nWhere faces should have been there was only smooth, warm skin, like the back of a hand. You could tell they were smiling by their shoulders. When Jasper stepped closer, every head turned towards him at the same moment.", "Only one guest had a face. Mehmet, the night guard, in his grey uniform, holding a paper plate with a single puff-puff on it as carefully as if it might spill. A photo of his twins had been taped to the coffee machine in the lobby for as long as Jasper had worked there.\n\nIt was Mehmet who had been on duty the night Jasper copied the files in the basement archive. Mehmet had looked at him, and at the stick in his hand, and said: *\"The west camera has been broken since yesterday.\"* And looked away.\n\n*\"They asked me about the west camera,\"* he said now, quietly. *\"I said it was broken. They let me go anyway. The twins start school in September.\"*\n\nHe held out the plate. *\"Should I have told them it was you?\"*", "The faceless guests leaned in, all together, the way plants turn to a window. The fairy lights flickered green, then dark, then green.\n\nThe cat would not come near the table. She sat at the edge of the light with her ears flat, staring at something underneath it.\n\nMehmet waited, the plate held out between them."], "choices": [{"k": "A", "label": "\"Yes. You should have.\"", "line": "Take the plate. Ferrant's people would have had your name — and the evidence.", "t": {"carry": 1, "payOthers": 1}, "fx": {}}, {"k": "B", "label": "\"No. Thank you. I'm sorry.\"", "line": "Leave the plate in his hands.", "t": {"hold": 1, "payOthers": 1}, "fx": {}}, {"k": "C", "label": "\"It doesn't matter now.\"", "line": "The guests' faces begin to form. They all look like you.", "t": {"let": 1, "paySelf": 1}, "fx": {"inf": 2}}], "hint": {"A": "The cat comes to the table and eats the puff-puff, very seriously.", "B": "Something scratches under the table. The cat backs up until she touches your leg.", "C": "For a moment, in the green light, the cat wears your face. Then it is gone."}, "read": {"A": "You took the plate.", "B": "You left the plate in his hands.", "C": "You let them all wear your face."}}, {"id": "pen", "title": "The Pen", "motif": "pen", "finds": ["The party was gone. The floor was warm under his feet — warmer with every step — and red light breathed in the cracks of the rock. He was deep under Fire Mountain now, and he knew without being told that this was the bottom.\n\nIn the middle of the chamber stood a desk cut from a single block of black basalt. On it lay a document, unrolled, its corners held down by four stones: the deed to this island. *Parcel 7-South.* No name, no chart, no address — Ferrant had chosen it for exactly that. A place on no map cannot send you an invoice.\n\nAt the bottom, Ferrant's signature. Over it, crooked and green, a stamp: NOTAX. Jasper had done that, the last night in Zürich, alone in the office, half joke and half curse.\n\nAnd below it, a line he did not remember writing: *One (1) island, paid in full.* His handwriting. His pen.\n\nThe pen was in his hand. It had been in his hand, one way or another, since he was eleven.", "The breathing was not behind him any more. It was everywhere: under the desk, in the walls, in the warm floor. When it spoke at last, it used his grandfather's voice — and that was the cruellest thing it had done.\n\n*\"Everything here was bought. You bought it. Someone pays.\"*\n\n*\"I have read your book, Jasper. All of it. The short pages too.\"*\n\nHe understood then what it was. Not a ghost; not a monster. Something old that lived under the island and kept its accounts — the creditor in Opa's saying, the one the sea only works for. Every owner of this island had come down here sooner or later. Galleon captains. Men with flags. Men with stamps. All of them had paid.\n\nThe cat sat on the deed, right on the green NOTAX, and looked up into the dark with enormous, steady eyes. She was not shaking any more.", "*\"Choose the coin.\"*"], "choices": [{"k": "A", "label": "The pen.", "line": "Lay it on the deed and let it go. (Wandel max −2 for good. The mountain will remember.)", "t": {"let": 1, "paySelf": 1}, "fx": {"wandelMax": -2, "mountain": 1}}, {"k": "B", "label": "The island.", "line": "\"Take it back. It was never mine.\" (The banyan loses 2 levels; every rot tile +1.)", "t": {"let": 1, "payOthers": 1}, "fx": {"banyanLv": -2, "rotAll": 1}}, {"k": "C", "label": "Nothing.", "line": "\"I've paid enough. We all have.\" — hold the pen, hold the cat.", "t": {"hold": 1, "shift": 1}, "fx": {}}], "hint": {"A": "", "B": "", "C": ""}, "read": {"A": "And now you give me the pen.", "B": "And now you give me the island.", "C": "And now you keep the pen."}}], "fates": {"gone": {"creditor": "A man who keeps everything has one thing he keeps most. I'll take that.", "text": "The breathing stops. The red light in the cracks goes out, one by one, like a city at three in the morning.\n\nWhen Jasper lifts the stamp, the deed is bare. There is nothing on the black stone but a single orange hair, lying across the green NOTAX.\n\nHe calls her. He calls her for a long time. The mountain gives him back only his own voice, a little late.", "up": "…Oh, darling."}, "dark": {"creditor": "You've been handing your weight to other people all your life. Here. Let her carry it.", "text": "The dark folds over the desk like a hand closing. When it opens, the cat is still sitting on the deed.\n\nShe is the same cat. Same orange fur, same white tip on her tail. But when the green light touches her eyes, they give it back red. She does not purr when he picks her up. She hums — a low, steady sound, like a machine in another room.", "up": "That's not your cat. That's your cat carrying something of yours. Don't make her carry it alone."}, "same": {"creditor": "Paid. In your own coin, for once. Go up. She's yours. She always was.", "text": "The warmth goes out of the floor. Somewhere very deep, something closes a book.\n\nThe cat stands up on the deed, stretches — front legs, back legs, the full ridiculous length of her — and jumps down, and walks ahead of him into the dark as if she has been waiting for him to finish his paperwork.", "up": "You went down with a cat and came up with the same cat. Do you know how rare that is? Don't answer. I'll cry, and I'm too old to cry in front of an accountant."}}, "exit": "Behind the basalt desk a passage leads east, through warm rock, past water that glows from below. It ends in a crack in the mountain's eastern flank, high above the sea.\n\nLight. Real light, wet and green, and the sound of a reef breathing. Below him the lagoon glows like something someone forgot to switch off.\n\n(Act 4 — The Lagoon — begins here. Not yet built.)"};
+export const BOARD_FX = {
+  tr: [[75, 'overflow only every 2nd flood'], [50, 'nests −1 power'], [25, 'bosses need +1 tide to recover']],
+  st: [[75, 'spearheads sometimes stray'], [50, 'mergers only ⅙ instead of ⅓'], [25, 'embezzlement: one nest skips feeding']],
+  be: [[50, 'rot next to strong roots may defect'], [25, 'pushback already at defence ≥ attack + 1']]
+};
+export const OFFENSIVES = { restructure: { name: 'Restructuring', fx: 'for three tides every rot network sends an extra spearhead — and armies march out of the nests, straight for the banyan, until they are destroyed', after: { st: 20, be: 10 }, cut: true } };
+// v062: the island shortcuts: tides 20 and 30 from Jan's v061 run (ebb states); T46/T51 still from the v034 run until tides 40/50 come in; T51 also carries the gate key
+export const SAVE_SKIPS = { T20: "{\"v\":1,\"module\":\"game\",\"kind\":\"ebb\",\"tide\":20,\"first\":false,\"b\":{\"stamina\":3,\"maxStamina\":12,\"green\":4027,\"tails\":66,\"rum\":7,\"hasStamp\":true,\"traumSeen\":{},\"tide\":8,\"tideMax\":8,\"flood\":15,\"day\":20,\"palmMax\":6,\"palmPending\":0,\"palmNuts\":6,\"tut\":4,\"firstKill\":true,\"firstGreen\":true,\"toldWalk\":true,\"combats\":10,\"losses\":2,\"raided\":false,\"seen\":{\"tadpole\":true,\"clam\":true,\"fish\":true,\"wasp\":true,\"bailiff\":true,\"tides\":true,\"louse\":true,\"tentacle\":true,\"clamTip\":true,\"waitTip\":true,\"petTip\":true},\"forestOpen\":true,\"poolSips\":3,\"upg\":{\"dmg\":3,\"speed\":4,\"splash\":3,\"jump\":1,\"boostLen\":2,\"magnet\":1,\"cycle\":1,\"cycleBoom\":0,\"cycleDive\":0,\"glide\":1,\"glideLen\":0,\"flame\":0,\"flamePow\":0,\"void\":1,\"voidCharge\":0,\"voidHeal\":1,\"catDive\":1,\"lapcat\":1,\"catBoard\":1,\"catFish\":0,\"catEel\":0,\"catShoo\":0},\"tort\":{\"bar\":0,\"sleep\":0,\"walk\":null,\"fx\":0.85,\"fy\":0.37},\"cr\":{\"fx\":0.38,\"ph\":54.1827999999999,\"face\":-1},\"kt\":{\"fx\":0.7563522702091438,\"fy\":0.5717542549452685,\"tfx\":0.7578929001729817,\"tfy\":0.5717244588287866,\"ph\":109.71729999999909,\"face\":1,\"dig\":0.183400000000006,\"circle\":true,\"held\":false},\"mapUnlocked\":true,\"mapAt\":13,\"ms\":{\"8\":\"\\ud83c\\udf34\",\"10\":\"\\ud83d\\uddfa\"},\"gameN\":11,\"auto\":\"off\",\"wins\":{\"12\":{\"n\":1,\"green\":615,\"tails\":11,\"rum\":4,\"kills\":389},\"13\":{\"n\":1,\"green\":804,\"tails\":7,\"rum\":4,\"kills\":379},\"14\":{\"n\":1,\"green\":537,\"tails\":11,\"rum\":2,\"kills\":437}},\"storySeen\":{\"1\":1,\"2\":1,\"3\":1,\"4\":1,\"5\":1,\"6\":1,\"7\":1,\"8\":1,\"9\":1,\"10\":1,\"11\":1,\"12\":1,\"13\":1},\"flotSeen\":{\"1\":1,\"2\":1,\"3\":1,\"4\":1,\"5\":1,\"6\":1,\"7\":1,\"8\":1,\"9\":1,\"10\":1,\"11\":1,\"12\":1,\"13\":1},\"ffi\":4,\"ffDay\":17,\"buyLog\":[\"dmg\",\"dmg\",\"dmg\",\"speed\",\"speed\",\"speed\",\"speed\",\"splash\",\"splash\",\"splash\",\"boostLen\",\"boostLen\",\"magnet\",\"glide\",\"void\",\"voidHeal\",\"catDive\",\"lapcat\",\"catBoard\",\"jump\",\"cycle\"],\"treeSel\":null,\"petToday\":false,\"talkNext\":[],\"saidThisEbb\":0,\"mapHint\":false,\"kofferDa\":true,\"giftLater\":null,\"autoLast\":null,\"tailsSeen\":true,\"tideMsg\":null,\"tideUps\":{\"crusoe1\":13,\"bark\":17},\"pendingLine\":null,\"lastRound\":{\"game\":11,\"round\":19,\"wave\":\"NEST-0-15\",\"tide_start\":8,\"green_start\":3755,\"green_spent\":0,\"tide_free\":0,\"tide_spent\":8,\"green_earned\":272,\"green_free\":4027,\"result\":\"nest_win\",\"kills\":164,\"total\":164,\"seconds\":44.3,\"max_stamina\":12,\"turret\":0,\"map\":1,\"surf\":\"st16 nest m1457 h248/358 walls e0(257) o1(-271) e0(166) ramps 2/2 taps -33;33 hits t1 gaps 1\"},\"nest\":null,\"pendingMust\":false},\"m\":{\"G\":{\"start\":4,\"banyan\":5,\"gecko\":1,\"fruit\":6,\"flotsam\":7,\"nest\":3,\"nest2\":17,\"radio\":12,\"wreck\":41,\"coco\":[0,2],\"tut\":\"done\",\"bossPlan\":[{\"id\":10,\"name\":\"Ink-rot hollow\"},{\"id\":18,\"name\":\"Ink-rot ledge\"}],\"fi\":false,\"fiLook\":0,\"at\":17,\"gezeit\":8,\"gmax\":8,\"spring\":7,\"springMax\":7,\"springSrc\":[\"island map unlocked\",\"briefcase found\",\"banyan\",\"roots\",\"nest1\",\"gecko\",\"nest2\"],\"wandel\":18,\"wFree\":16,\"sapGrow\":9,\"sapProd\":0,\"prio\":0.5,\"order\":\"roots\",\"rootTarget\":-1,\"unl\":{\"listen\":true},\"banyans\":[5],\"tower\":false,\"cutting\":false,\"mapSpent\":36,\"lastSap\":6,\"scen\":\"real\",\"res\":{\"fruit\":5,\"coco\":10,\"green\":4027},\"friends\":{\"banyan\":true,\"gecko\":true},\"regionOpen\":{\"1\":true},\"tide\":20,\"omen\":\"grove\",\"es\":{},\"collapses\":0,\"deck\":[\"jungle\",\"slope\",\"beach\",\"slope\",\"slope\",\"beach\",\"beach\"],\"phase\":\"ebb\",\"over\":false,\"blevel\":2,\"nests\":[3,17,23,36,10,18],\"memories\":[\"invoice\"],\"inf\":0,\"key\":false,\"cave\":22,\"gate\":15,\"descent\":0,\"descTide\":-1,\"below\":false,\"caveC\":[],\"caveT\":{},\"catFate\":null,\"wandelMax\":60,\"flags\":{\"rotSelbst\":true},\"mountain\":false,\"lavaTide\":-1,\"collapse\":false,\"skipBeach\":false,\"board\":{\"tr\":89,\"st\":90,\"be\":94,\"intel\":4,\"off\":null,\"pause\":-1,\"nextOffer\":22,\"offers\":0},\"boss\":{\"alive\":true,\"revealed\":true,\"stage\":1,\"at\":10,\"rec\":1,\"ready\":false,\"fight\":false,\"nests\":[10,18],\"firstLong\":true},\"lastPrioTide\":20,\"armies\":[],\"offN\":0,\"offLost\":0,\"moves\":32,\"explEbb\":2,\"cleanTarget\":-1,\"lastStage\":\"Castaway\",\"t0\":13,\"_tn\":null,\"kursZ\":-1,\"kursBlase\":\"\",\"kursHl\":\"\",\"tutIn\":-1,\"tutSeit\":18,\"caseFound\":true,\"talkEbb\":2,\"inAct\":false,\"freundTide\":13,\"bmArm\":true,\"treeSeen\":true,\"bWarn1\":false,\"bWarn2\":false,\"lastBeach\":{\"skipped\":true},\"stau\":1,\"stauLast\":1,\"prioShown\":0,\"started\":true,\"treeCanSince\":-1,\"springFlash\":973.3796,\"tutRot\":7,\"noTide\":4,\"geckoFed\":1,\"geckoFedTide\":16,\"tours\":{\"strike\":{\"n\":2,\"tide\":17}},\"wachAb\":19,\"wachRang\":{\"2\":3,\"3\":1,\"4\":2,\"6\":4},\"schlafBis\":19,\"glimmer\":{\"ids\":[10,18],\"t0\":973.3796}},\"T\":[{\"state\":2,\"b\":0,\"name\":\"Coconut palms\",\"rooted\":true,\"rs\":3,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":{\"kind\":\"res\",\"res\":\"coco\",\"icon\":\"\\ud83e\\udd65\"},\"welk\":false},{\"state\":2,\"b\":0,\"name\":\"Palm grove\",\"rooted\":true,\"rs\":3,\"prot\":true,\"exh\":0,\"type\":\"jungle\",\"content\":{\"kind\":\"gecko\",\"icon\":\"\\ud83e\\udd8e\"},\"welk\":false},{\"state\":2,\"b\":0,\"name\":\"Coconut palms\",\"rooted\":true,\"rs\":2,\"prot\":true,\"exh\":0,\"type\":\"grove\",\"content\":{\"kind\":\"res\",\"res\":\"coco\",\"icon\":\"\\ud83e\\udd65\"},\"welk\":false},{\"state\":2,\"b\":0,\"source\":null,\"name\":\"Cleansed shore\",\"rooted\":true,\"rs\":2,\"prot\":false,\"exh\":0,\"type\":\"beach\",\"content\":null,\"welk\":false},{\"state\":2,\"b\":0,\"name\":\"Crab Beach\",\"rooted\":true,\"rs\":2,\"prot\":true,\"exh\":0,\"type\":\"beach\",\"content\":{\"kind\":\"start\"},\"welk\":false},{\"state\":2,\"b\":0,\"name\":\"The spring\",\"rooted\":true,\"rs\":3,\"prot\":false,\"exh\":0,\"type\":\"jungle\",\"content\":{\"kind\":\"banyan\",\"icon\":\"\\ud83c\\udf3f\"},\"welk\":false},{\"state\":2,\"b\":0,\"name\":\"Breadfruit grove\",\"rooted\":true,\"rs\":3,\"prot\":true,\"exh\":0,\"type\":\"grove\",\"content\":{\"kind\":\"res\",\"res\":\"fruit\",\"icon\":\"\\ud83c\\udf5e\"},\"welk\":false},{\"state\":2,\"b\":0,\"name\":\"Flotsam cove\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"rotBorn\":14,\"type\":\"beach\",\"content\":{\"kind\":\"memory\",\"icon\":\"\\u2726\"}},{\"state\":2,\"b\":0,\"name\":\"Cliff-top grove\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":null},{\"state\":2,\"b\":0,\"name\":\"Cliff-top grove\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":null},{\"state\":2,\"b\":2,\"source\":\"nest\",\"owner\":\"bailiff\",\"name\":\"Ink-rot hollow\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":null,\"welk\":false},{\"state\":0,\"b\":0,\"name\":\"Cliff-top grove\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Washed-up radio\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":{\"kind\":\"radio\",\"icon\":\"\\ud83d\\udcfb\"}},{\"state\":2,\"b\":0,\"name\":\"Cliff-top jungle\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"jungle\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Cliff-top jungle\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"jungle\",\"content\":null},{\"state\":2,\"b\":0,\"name\":\"The rusted gate\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"jungle\",\"content\":null},{\"state\":2,\"b\":0,\"name\":\"Cliff-top grove\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":null},{\"state\":2,\"b\":0,\"source\":null,\"name\":\"Cleansed cliffs\",\"rooted\":false,\"rs\":0,\"prot\":true,\"exh\":0,\"type\":\"jungle\",\"content\":null},{\"state\":2,\"b\":2,\"source\":\"nest\",\"owner\":\"bailiff\",\"name\":\"Ink-rot ledge\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":null,\"welk\":false},{\"state\":2,\"b\":0,\"name\":\"Cliff-top grove\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Jungle\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"jungle\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Fire Mountain\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"slope\",\"content\":null},{\"state\":0,\"b\":0,\"source\":null,\"name\":\"Cave mouth\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"jungle\",\"content\":{\"kind\":\"cave\",\"icon\":\"\\ud83e\\udd87\"}},{\"state\":0,\"b\":2,\"source\":\"nest\",\"name\":\"Rotting slope\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"slope\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Grove\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Jungle\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"jungle\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"The tangle\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"tangle\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"The tangle\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"tangle\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Fire Mountain\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"slope\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Grove\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Lava fields\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"lava\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Grove\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"The tangle\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"tangle\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Beach\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"beach\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Beach\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"beach\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"The tangle\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"tangle\",\"content\":null},{\"state\":0,\"b\":2,\"source\":\"nest\",\"name\":\"Rotting lagoon shore\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Beach\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"beach\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Grove\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Beach\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"beach\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Beach\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"beach\",\"content\":null},{\"state\":0,\"b\":3,\"source\":\"wreck\",\"name\":\"The wreck\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"water\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Reef waters\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"water\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Reef waters\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"water\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Reef waters\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"water\",\"content\":null}],\"seen\":{\"#intelToast\":3,\"caseFound\":1,\"rule_tide\":1,\"intro\":1,\"opening\":1,\"rule_wandel\":1,\"protect\":1,\"tutRes\":1,\"rule_sap\":1,\"listenCase\":1,\"banyanFriend\":1,\"rule_spring\":1,\"rule_reach\":1,\"nourishCase\":1,\"rule_nests\":1,\"firstMove\":1,\"rule_omen\":1,\"springErfolg\":1,\"firstScout\":1,\"rule_befall\":1,\"catEnjoys\":1,\"exposed\":1,\"rule_nestfight\":1,\"banyanSeen\":1,\"rule_rot\":1,\"rule_defence\":1,\"seam\":1,\"listen\":1,\"springUse\":1,\"sight_Castaway\":1,\"stage_Castaway\":1,\"nourish\":1,\"rootGrow\":1,\"inf5\":1,\"rule_boss\":1,\"#bossDay1\":1,\"rotVisit\":1,\"rotMove\":1,\"bossNestsT\":1}}}", T30: "{\"v\":1,\"module\":\"game\",\"kind\":\"ebb\",\"tide\":30,\"first\":false,\"b\":{\"stamina\":10,\"maxStamina\":16,\"green\":1066,\"tails\":78,\"rum\":6,\"hasStamp\":true,\"traumSeen\":{\"dmg\":1,\"speed\":1,\"splash\":1,\"jump\":1,\"g_jump\":2,\"boostLen\":1,\"magnet\":1,\"cycle\":1,\"g_cycle\":2,\"cycleBoom\":1,\"cycleDive\":1,\"glide\":1,\"g_glide\":2,\"glideLen\":1,\"void\":1,\"voidCharge\":1,\"voidHeal\":1,\"catDive\":1,\"lapcat\":1,\"catBoard\":1,\"catFish\":1,\"catShoo\":1,\"catEel\":1,\"listen\":1,\"rootOrder\":1,\"coarse\":1,\"tower\":1,\"cleanRot\":1,\"ableger\":1,\"t_coarse\":1,\"_intro\":1,\"t_tower\":1,\"t_boostLen\":1,\"t_void\":1,\"t_voidCharge\":1,\"t_dmg\":1,\"t_catEel\":1,\"t_catFish\":1,\"tower2\":1,\"fine\":1,\"t_ableger\":1,\"t_glideLen\":1,\"t_splash\":1,\"t_voidHeal\":1,\"t_speed\":1,\"t_cycleDive\":1,\"t_magnet\":1,\"t_rootOrder\":1,\"t_tower2\":1,\"t_cleanRot\":1,\"t_cycleBoom\":1,\"t_catShoo\":1},\"tide\":0,\"tideMax\":8,\"flood\":21,\"day\":30,\"palmMax\":7,\"palmPending\":0,\"palmNuts\":0,\"tut\":4,\"firstKill\":true,\"firstGreen\":true,\"toldWalk\":true,\"combats\":20,\"losses\":5,\"raided\":false,\"seen\":{\"tadpole\":true,\"clam\":true,\"fish\":true,\"wasp\":true,\"bailiff\":true,\"tides\":true,\"louse\":true,\"tentacle\":true,\"clamTip\":true,\"waitTip\":true,\"petTip\":true,\"eel\":true},\"forestOpen\":true,\"poolSips\":2,\"upg\":{\"dmg\":6,\"speed\":6,\"splash\":5,\"jump\":1,\"boostLen\":3,\"magnet\":3,\"cycle\":1,\"cycleBoom\":2,\"cycleDive\":1,\"glide\":1,\"glideLen\":1,\"flame\":0,\"flamePow\":0,\"void\":1,\"voidCharge\":1,\"voidHeal\":2,\"catDive\":1,\"lapcat\":1,\"catBoard\":1,\"catFish\":5,\"catEel\":1,\"catShoo\":1},\"tort\":{\"bar\":1,\"sleep\":0,\"walk\":null,\"fx\":0.85,\"fy\":0.37},\"cr\":{\"fx\":0.38,\"ph\":132.84679999999534,\"face\":-1},\"kt\":{\"fx\":0.4364320000000346,\"fy\":0.58,\"tfx\":0.44,\"tfy\":0.5800000000000001,\"ph\":268.4102999999678,\"face\":1,\"dig\":0,\"circle\":false,\"held\":false},\"mapUnlocked\":true,\"mapAt\":13,\"ms\":{\"8\":\"\\ud83c\\udf34\",\"10\":\"\\ud83d\\uddfa\",\"17\":\"\\ud83d\\udc41\",\"20\":\"\\ud83d\\udc41\"},\"gameN\":11,\"auto\":\"silver\",\"wins\":{\"12\":{\"n\":1,\"green\":615,\"tails\":11,\"rum\":4,\"kills\":389},\"13\":{\"n\":1,\"green\":804,\"tails\":7,\"rum\":4,\"kills\":379},\"14\":{\"n\":1,\"green\":537,\"tails\":11,\"rum\":2,\"kills\":437},\"15\":{\"n\":1,\"green\":728,\"tails\":15,\"rum\":2,\"kills\":484},\"16\":{\"n\":1,\"green\":901,\"tails\":16,\"rum\":9,\"kills\":486},\"17\":{\"n\":1,\"green\":603,\"tails\":11,\"rum\":3,\"kills\":542},\"18\":{\"n\":1,\"green\":655,\"tails\":8,\"rum\":2,\"kills\":439},\"19\":{\"n\":1,\"green\":1017,\"tails\":20,\"rum\":2,\"kills\":549},\"20\":{\"n\":1,\"green\":1064,\"tails\":14,\"rum\":5,\"kills\":645}},\"storySeen\":{\"1\":1,\"2\":1,\"3\":1,\"4\":1,\"5\":1,\"6\":1,\"7\":1,\"8\":1,\"9\":1,\"10\":1,\"11\":1,\"12\":1,\"13\":1},\"flotSeen\":{\"1\":1,\"2\":1,\"3\":1,\"4\":1,\"5\":1,\"6\":1,\"7\":1,\"8\":1,\"9\":1,\"10\":1,\"11\":1,\"12\":1,\"13\":1},\"ffi\":5,\"ffDay\":20,\"buyLog\":[\"dmg\",\"dmg\",\"dmg\",\"speed\",\"speed\",\"speed\",\"speed\",\"splash\",\"splash\",\"splash\",\"boostLen\",\"boostLen\",\"magnet\",\"glide\",\"void\",\"voidHeal\",\"catDive\",\"lapcat\",\"catBoard\",\"jump\",\"cycle\",\"boostLen\",\"voidCharge\",\"dmg\",\"catEel\",\"catFish\",\"glideLen\",\"catFish\",\"splash\",\"voidHeal\",\"speed\",\"dmg\",\"dmg\",\"cycleDive\",\"magnet\",\"cycleBoom\",\"speed\",\"splash\",\"magnet\",\"catShoo\",\"catFish\",\"catFish\",\"catFish\",\"cycleBoom\"],\"treeSel\":null,\"petToday\":false,\"talkNext\":[],\"saidThisEbb\":1,\"mapHint\":false,\"kofferDa\":true,\"giftLater\":null,\"autoLast\":{\"crabs\":0,\"water\":8,\"rum\":0,\"tide\":8},\"tailsSeen\":true,\"tideMsg\":null,\"tideUps\":{\"crusoe1\":13,\"bark\":17},\"pendingLine\":null,\"lastRound\":{\"game\":11,\"round\":29,\"wave\":20,\"tide_start\":8,\"green_start\":2875,\"green_spent\":2783,\"tide_free\":0,\"tide_spent\":8,\"green_earned\":1064,\"green_free\":1066,\"result\":\"win\",\"kills\":645,\"total\":649,\"seconds\":109,\"max_stamina\":16,\"turret\":0,\"map\":1,\"surf\":\"st20 wave m4031 h956/1569 walls e0(562) e0(432) e1(283) l7(-601) e0(549) n0 e0(976) e0(451) ramps 11/12 taps 0;58;0;-17;-33;-;50;8;83;58;75;17 hits m1;t/climb3;t1;t/boom2;f/climb1\"},\"nest\":null,\"pendingMust\":false,\"lap\":{\"n\":1,\"t\":262.0254999999998},\"autoTxt\":\"\\ud83d\\uddfc The tower tended the beach \\u00b7 \\ud83d\\udca7 +8 stamina \\u00b7 \\u22128 beach tide\",\"rumGift\":false},\"m\":{\"G\":{\"start\":4,\"banyan\":5,\"gecko\":1,\"fruit\":6,\"flotsam\":7,\"nest\":3,\"nest2\":17,\"radio\":12,\"wreck\":41,\"coco\":[0,2],\"tut\":\"done\",\"bossPlan\":[{\"id\":10,\"name\":\"Ink-rot hollow\"},{\"id\":18,\"name\":\"Ink-rot ledge\"}],\"fi\":false,\"fiLook\":0,\"at\":13,\"gezeit\":8,\"gmax\":8,\"spring\":9,\"springMax\":9,\"springSrc\":[\"island map unlocked\",\"briefcase found\",\"banyan\",\"roots\",\"nest1\",\"gecko\",\"nest2\",\"tower\",\"offshoot\"],\"wandel\":34,\"wFree\":2,\"sapGrow\":4.5,\"sapProd\":6.5,\"prio\":0.5,\"order\":\"tower2\",\"rootTarget\":-1,\"unl\":{\"listen\":true,\"coarse\":true,\"tower\":true,\"ableger\":true,\"tower2\":true},\"banyans\":[5,13],\"tower\":true,\"cutting\":false,\"mapSpent\":234,\"lastSap\":11,\"scen\":\"real\",\"res\":{\"fruit\":25,\"coco\":10,\"green\":1066},\"friends\":{\"banyan\":true,\"gecko\":true},\"regionOpen\":{\"1\":true},\"tide\":30,\"omen\":\"grove\",\"es\":{},\"collapses\":1,\"deck\":[\"jungle\",\"jungle\",\"slope\",\"beach\",\"beach\",\"beach\",\"jungle\",\"grove\",\"grove\"],\"phase\":\"ebb\",\"over\":false,\"blevel\":3,\"nests\":[3,17,23,36,10,18],\"memories\":[\"invoice\"],\"inf\":0,\"key\":false,\"cave\":22,\"gate\":15,\"descent\":0,\"descTide\":-1,\"below\":false,\"caveC\":[],\"caveT\":{},\"catFate\":null,\"wandelMax\":60,\"flags\":{\"rotSelbst\":true},\"mountain\":false,\"lavaTide\":-1,\"collapse\":false,\"skipBeach\":false,\"board\":{\"tr\":84,\"st\":79,\"be\":90,\"intel\":9,\"off\":null,\"pause\":-1,\"nextOffer\":22,\"offers\":0},\"boss\":{\"alive\":true,\"revealed\":true,\"stage\":2,\"at\":18,\"rec\":0,\"ready\":false,\"fight\":false,\"nests\":[10,18],\"firstLong\":false},\"lastPrioTide\":28,\"armies\":[],\"offN\":0,\"offLost\":0,\"moves\":58,\"explEbb\":2,\"cleanTarget\":-1,\"lastStage\":\"Synthesis\",\"t0\":13,\"_tn\":null,\"kursZ\":-1,\"kursBlase\":\"\",\"kursHl\":\"\",\"tutIn\":-1,\"tutSeit\":18,\"frisch\":{\"G\":{\"start\":4,\"banyan\":5,\"gecko\":1,\"fruit\":6,\"flotsam\":7,\"nest\":3,\"nest2\":17,\"radio\":12,\"wreck\":41,\"coco\":[0,2],\"tut\":\"done\",\"bossPlan\":[{\"id\":10,\"name\":\"Ink-rot hollow\"},{\"id\":18,\"name\":\"Ink-rot ledge\"}],\"fi\":false,\"fiLook\":0,\"at\":17,\"gezeit\":0,\"gmax\":8,\"spring\":1,\"springMax\":7,\"springSrc\":[\"island map unlocked\",\"briefcase found\",\"banyan\",\"roots\",\"nest1\",\"gecko\",\"nest2\"],\"wandel\":18,\"wFree\":16,\"sapGrow\":6,\"sapProd\":0,\"prio\":0.5,\"order\":\"roots\",\"rootTarget\":-1,\"unl\":{\"listen\":true},\"banyans\":[5],\"tower\":false,\"cutting\":false,\"mapSpent\":36,\"lastSap\":6,\"scen\":\"real\",\"res\":{\"fruit\":3,\"coco\":9,\"green\":4027},\"friends\":{\"banyan\":true,\"gecko\":true},\"regionOpen\":{\"1\":true},\"tide\":19,\"omen\":\"jungle\",\"es\":{\"move\":3,\"burn\":4,\"protect\":1,\"nest_fight\":\"won\"},\"collapses\":0,\"deck\":[\"jungle\",\"slope\",\"beach\",\"slope\",\"slope\",\"beach\",\"beach\",\"grove\"],\"phase\":\"flood\",\"over\":false,\"blevel\":2,\"nests\":[3,17,23,36,10,18],\"memories\":[\"invoice\"],\"inf\":0,\"key\":false,\"cave\":22,\"gate\":15,\"descent\":0,\"descTide\":-1,\"below\":false,\"caveC\":[],\"caveT\":{},\"catFate\":null,\"wandelMax\":60,\"flags\":{\"rotSelbst\":true},\"mountain\":false,\"lavaTide\":-1,\"collapse\":false,\"skipBeach\":true,\"board\":{\"tr\":89,\"st\":90,\"be\":94,\"intel\":4,\"off\":null,\"pause\":-1,\"nextOffer\":22,\"offers\":0},\"boss\":{\"alive\":true,\"revealed\":true,\"stage\":1,\"at\":10,\"rec\":0,\"ready\":false,\"fight\":false,\"nests\":[10,18],\"firstLong\":true},\"lastPrioTide\":19,\"armies\":[],\"offN\":0,\"offLost\":0,\"moves\":32,\"explEbb\":2,\"cleanTarget\":-1,\"lastStage\":\"Castaway\",\"t0\":13,\"_tn\":null,\"kursZ\":-1,\"kursBlase\":\"\",\"kursHl\":\"\",\"tutIn\":-1,\"tutSeit\":18,\"frisch\":null,\"caseFound\":true,\"talkEbb\":3,\"inAct\":false,\"freundTide\":13,\"bmArm\":true,\"treeSeen\":true,\"bWarn1\":false,\"bWarn2\":false,\"lastBeach\":{\"win\":false,\"wave\":15,\"kills\":27,\"total\":59,\"earned\":23,\"green\":3755,\"bossDown\":false,\"turret\":false,\"boss\":null},\"stau\":1,\"stauLast\":1,\"prioShown\":0,\"started\":true,\"treeCanSince\":-1,\"springFlash\":973.3796,\"tutRot\":7,\"noTide\":4,\"geckoFed\":1,\"geckoFedTide\":16,\"tours\":{\"strike\":{\"n\":2,\"tide\":17}},\"wachAb\":19,\"wachRang\":{\"2\":3,\"3\":1,\"4\":2,\"6\":4},\"schlafBis\":19,\"glimmer\":{\"ids\":[10,18],\"t0\":973.3796}},\"T\":[{\"state\":2,\"b\":0,\"name\":\"Coconut palms\",\"rooted\":true,\"rs\":3,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":{\"kind\":\"res\",\"res\":\"coco\",\"icon\":\"\\ud83e\\udd65\"},\"welk\":false},{\"state\":2,\"b\":0,\"name\":\"Palm grove\",\"rooted\":true,\"rs\":3,\"prot\":true,\"exh\":0,\"type\":\"jungle\",\"content\":{\"kind\":\"gecko\",\"icon\":\"\\ud83e\\udd8e\"},\"welk\":false},{\"state\":2,\"b\":0,\"name\":\"Coconut palms\",\"rooted\":true,\"rs\":2,\"prot\":true,\"exh\":0,\"type\":\"grove\",\"content\":{\"kind\":\"res\",\"res\":\"coco\",\"icon\":\"\\ud83e\\udd65\"},\"welk\":false},{\"state\":2,\"b\":0,\"source\":null,\"name\":\"Cleansed shore\",\"rooted\":true,\"rs\":2,\"prot\":false,\"exh\":0,\"type\":\"beach\",\"content\":null,\"welk\":false},{\"state\":2,\"b\":0,\"name\":\"Crab Beach\",\"rooted\":true,\"rs\":2,\"prot\":true,\"exh\":0,\"type\":\"beach\",\"content\":{\"kind\":\"start\"},\"welk\":false},{\"state\":2,\"b\":0,\"name\":\"The spring\",\"rooted\":true,\"rs\":3,\"prot\":false,\"exh\":0,\"type\":\"jungle\",\"content\":{\"kind\":\"banyan\",\"icon\":\"\\ud83c\\udf3f\"},\"welk\":false},{\"state\":2,\"b\":0,\"name\":\"Breadfruit grove\",\"rooted\":true,\"rs\":2,\"prot\":true,\"exh\":0,\"type\":\"grove\",\"content\":{\"kind\":\"res\",\"res\":\"fruit\",\"icon\":\"\\ud83c\\udf5e\"},\"welk\":false},{\"state\":2,\"b\":0,\"name\":\"Flotsam cove\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"rotBorn\":14,\"type\":\"beach\",\"content\":{\"kind\":\"memory\",\"icon\":\"\\u2726\"}},{\"state\":2,\"b\":0,\"name\":\"Cliff-top grove\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":null},{\"state\":2,\"b\":0,\"name\":\"Cliff-top grove\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":null},{\"state\":2,\"b\":2,\"source\":\"nest\",\"owner\":\"bailiff\",\"name\":\"Ink-rot hollow\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":null,\"welk\":false},{\"state\":0,\"b\":0,\"name\":\"Cliff-top grove\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Washed-up radio\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":{\"kind\":\"radio\",\"icon\":\"\\ud83d\\udcfb\"}},{\"state\":2,\"b\":0,\"name\":\"Cliff-top jungle\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"jungle\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Cliff-top jungle\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"jungle\",\"content\":null},{\"state\":2,\"b\":0,\"name\":\"The rusted gate\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"jungle\",\"content\":null},{\"state\":2,\"b\":0,\"name\":\"Cliff-top grove\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":null},{\"state\":2,\"b\":0,\"source\":null,\"name\":\"Cleansed cliffs\",\"rooted\":false,\"rs\":0,\"prot\":true,\"exh\":0,\"type\":\"jungle\",\"content\":null},{\"state\":2,\"b\":2,\"source\":\"nest\",\"owner\":\"bailiff\",\"name\":\"Ink-rot ledge\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":null,\"welk\":false},{\"state\":2,\"b\":0,\"name\":\"Cliff-top grove\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Jungle\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"jungle\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Fire Mountain\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"slope\",\"content\":null},{\"state\":0,\"b\":0,\"source\":null,\"name\":\"Cave mouth\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"jungle\",\"content\":{\"kind\":\"cave\",\"icon\":\"\\ud83e\\udd87\"}},{\"state\":0,\"b\":2,\"source\":\"nest\",\"name\":\"Rotting slope\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"slope\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Grove\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Jungle\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"jungle\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"The tangle\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"tangle\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"The tangle\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"tangle\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Fire Mountain\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"slope\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Grove\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Lava fields\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"lava\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Grove\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"The tangle\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"tangle\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Beach\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"beach\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Beach\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"beach\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"The tangle\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"tangle\",\"content\":null},{\"state\":0,\"b\":2,\"source\":\"nest\",\"name\":\"Rotting lagoon shore\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Beach\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"beach\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Grove\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Beach\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"beach\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Beach\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"beach\",\"content\":null},{\"state\":0,\"b\":3,\"source\":\"wreck\",\"name\":\"The wreck\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"water\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Reef waters\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"water\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Reef waters\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"water\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Reef waters\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"water\",\"content\":null}],\"seen\":{\"#intelToast\":3,\"caseFound\":1,\"rule_tide\":1,\"intro\":1,\"opening\":1,\"rule_wandel\":1,\"protect\":1,\"tutRes\":1,\"rule_sap\":1,\"listenCase\":1,\"banyanFriend\":1,\"rule_spring\":1,\"rule_reach\":1,\"nourishCase\":1,\"rule_nests\":1,\"firstMove\":1,\"rule_omen\":1,\"springErfolg\":1,\"firstScout\":1,\"rule_befall\":1,\"catEnjoys\":1,\"exposed\":1,\"rule_nestfight\":1,\"banyanSeen\":1,\"rule_rot\":1,\"rule_defence\":1,\"seam\":1,\"listen\":1,\"springUse\":1,\"sight_Castaway\":1,\"stage_Castaway\":1,\"nourish\":1,\"rootGrow\":1,\"inf5\":1,\"rule_boss\":1}},\"caseFound\":true,\"talkEbb\":3,\"inAct\":false,\"freundTide\":13,\"bmArm\":false,\"treeSeen\":true,\"bmRef\":0,\"bWarn1\":false,\"bWarn2\":false,\"lastBeach\":{\"win\":true,\"wave\":20,\"kills\":645,\"total\":649,\"earned\":1064,\"green\":1066,\"bossDown\":true,\"turret\":false,\"boss\":2},\"stau\":7,\"stauLast\":1,\"prioShown\":0,\"started\":true,\"treeCanSince\":-1,\"springFlash\":2472.0929,\"tutRot\":7,\"noTide\":4,\"geckoFed\":1,\"geckoFedTide\":16,\"tours\":{\"strike\":{\"n\":2,\"tide\":17}},\"wachAb\":19,\"wachRang\":{\"2\":3,\"3\":1,\"4\":2,\"6\":4},\"schlafBis\":19,\"glimmer\":{\"ids\":[10,18],\"t0\":973.3796},\"towerPaid\":true,\"towerRing\":false,\"wasted\":2,\"shot\":null,\"rootFx\":[],\"bmRevealTide\":30,\"tower2Paid\":true},\"T\":[{\"state\":2,\"b\":0,\"name\":\"Coconut palms\",\"rooted\":true,\"rs\":3,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":{\"kind\":\"res\",\"res\":\"coco\",\"icon\":\"\\ud83e\\udd65\"},\"welk\":false},{\"state\":2,\"b\":0,\"name\":\"Palm grove\",\"rooted\":true,\"rs\":3,\"prot\":true,\"exh\":0,\"type\":\"jungle\",\"content\":{\"kind\":\"gecko\",\"icon\":\"\\ud83e\\udd8e\"},\"welk\":false},{\"state\":2,\"b\":0,\"name\":\"Coconut palms\",\"rooted\":true,\"rs\":2,\"prot\":true,\"exh\":0,\"type\":\"grove\",\"content\":{\"kind\":\"res\",\"res\":\"coco\",\"icon\":\"\\ud83e\\udd65\"},\"welk\":false},{\"state\":2,\"b\":0,\"source\":null,\"name\":\"Cleansed shore\",\"rooted\":true,\"rs\":2,\"prot\":false,\"exh\":0,\"type\":\"beach\",\"content\":null,\"welk\":false},{\"state\":2,\"b\":0,\"name\":\"Crab Beach\",\"rooted\":true,\"rs\":2,\"prot\":true,\"exh\":0,\"type\":\"beach\",\"content\":{\"kind\":\"start\"},\"welk\":false},{\"state\":2,\"b\":0,\"name\":\"The spring\",\"rooted\":true,\"rs\":2,\"prot\":false,\"exh\":0,\"type\":\"jungle\",\"content\":{\"kind\":\"banyan\",\"icon\":\"\\ud83c\\udf3f\"},\"welk\":false},{\"state\":2,\"b\":0,\"name\":\"Breadfruit grove\",\"rooted\":true,\"rs\":2,\"prot\":true,\"exh\":0,\"type\":\"grove\",\"content\":{\"kind\":\"res\",\"res\":\"fruit\",\"icon\":\"\\ud83c\\udf5e\"},\"welk\":false},{\"state\":2,\"b\":0,\"name\":\"Flotsam cove\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"rotBorn\":14,\"type\":\"beach\",\"content\":{\"kind\":\"memory\",\"icon\":\"\\u2726\"}},{\"state\":2,\"b\":0,\"name\":\"Cliff-top grove\",\"rooted\":false,\"rs\":0,\"prot\":true,\"exh\":0,\"type\":\"grove\",\"content\":null},{\"state\":2,\"b\":0,\"name\":\"Cliff-top grove\",\"rooted\":true,\"rs\":1,\"prot\":true,\"exh\":0,\"type\":\"grove\",\"content\":null,\"welk\":false},{\"state\":2,\"b\":0,\"source\":null,\"owner\":null,\"name\":\"Cleansed hollow\",\"rooted\":false,\"rs\":0,\"prot\":true,\"exh\":0,\"type\":\"grove\",\"content\":null,\"welk\":false},{\"state\":1,\"b\":0,\"name\":\"Cliff-top grove\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Washed-up radio\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":{\"kind\":\"radio\",\"icon\":\"\\ud83d\\udcfb\"}},{\"state\":2,\"b\":0,\"name\":\"Cliff-top jungle\",\"rooted\":true,\"rs\":1,\"prot\":true,\"exh\":0,\"ableger\":true,\"sac\":0,\"type\":\"jungle\",\"content\":null,\"welk\":false},{\"state\":1,\"b\":0,\"name\":\"Cliff-top jungle\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"jungle\",\"content\":null},{\"state\":2,\"b\":0,\"name\":\"The rusted gate\",\"rooted\":true,\"rs\":1,\"prot\":true,\"exh\":0,\"type\":\"jungle\",\"content\":null,\"welk\":false},{\"state\":2,\"b\":0,\"name\":\"Cliff-top grove\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":null},{\"state\":2,\"b\":0,\"source\":null,\"name\":\"Cleansed cliffs\",\"rooted\":true,\"rs\":2,\"prot\":true,\"exh\":0,\"type\":\"jungle\",\"content\":null,\"welk\":false},{\"state\":2,\"b\":3,\"source\":\"nest\",\"owner\":\"bailiff\",\"name\":\"Ink-rot ledge\",\"rooted\":false,\"rs\":0,\"prot\":true,\"exh\":0,\"rotBorn\":27,\"type\":\"grove\",\"content\":null,\"welk\":false},{\"state\":2,\"b\":0,\"name\":\"Cliff-top grove\",\"rooted\":false,\"rs\":0,\"prot\":true,\"exh\":0,\"type\":\"grove\",\"content\":null},{\"state\":0,\"b\":3,\"name\":\"Jungle\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"rotBorn\":24,\"type\":\"jungle\",\"content\":null,\"full3\":26},{\"state\":1,\"b\":3,\"name\":\"Fire Mountain\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"rotBorn\":23,\"type\":\"slope\",\"content\":null,\"full3\":25},{\"state\":1,\"b\":0,\"source\":null,\"name\":\"Cave mouth\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"jungle\",\"content\":{\"kind\":\"cave\",\"icon\":\"\\ud83e\\udd87\"}},{\"state\":0,\"b\":3,\"source\":\"nest\",\"name\":\"Rotting slope\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"slope\",\"content\":null},{\"state\":1,\"b\":3,\"name\":\"Grove\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"rotBorn\":20,\"type\":\"grove\",\"content\":null,\"full3\":23},{\"state\":0,\"b\":0,\"name\":\"Jungle\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"jungle\",\"content\":null},{\"state\":1,\"b\":3,\"name\":\"The tangle\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"rotBorn\":27,\"type\":\"tangle\",\"content\":null,\"full3\":29},{\"state\":0,\"b\":0,\"name\":\"The tangle\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"tangle\",\"content\":null},{\"state\":0,\"b\":3,\"name\":\"Fire Mountain\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"rotBorn\":26,\"type\":\"slope\",\"content\":null,\"full3\":28},{\"state\":0,\"b\":0,\"name\":\"Grove\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":null},{\"state\":1,\"b\":3,\"name\":\"Lava fields\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"rotBorn\":27,\"type\":\"lava\",\"content\":null,\"full3\":30},{\"state\":0,\"b\":0,\"name\":\"Grove\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":null},{\"state\":1,\"b\":3,\"name\":\"The tangle\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"rotBorn\":25,\"type\":\"tangle\",\"content\":null,\"full3\":27},{\"state\":0,\"b\":3,\"name\":\"Beach\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"rotBorn\":21,\"type\":\"beach\",\"content\":null,\"full3\":23},{\"state\":0,\"b\":0,\"name\":\"Beach\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"beach\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"The tangle\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"tangle\",\"content\":null},{\"state\":0,\"b\":3,\"source\":\"nest\",\"name\":\"Rotting lagoon shore\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":null},{\"state\":0,\"b\":3,\"name\":\"Beach\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"rotBorn\":27,\"type\":\"beach\",\"content\":null,\"full3\":30},{\"state\":0,\"b\":0,\"name\":\"Grove\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"grove\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Beach\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"beach\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Beach\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"beach\",\"content\":null},{\"state\":0,\"b\":3,\"source\":\"wreck\",\"name\":\"The wreck\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"water\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Reef waters\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"water\",\"content\":null},{\"state\":0,\"b\":0,\"name\":\"Reef waters\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"water\",\"content\":null},{\"state\":1,\"b\":0,\"name\":\"Reef waters\",\"rooted\":false,\"rs\":0,\"prot\":false,\"exh\":0,\"type\":\"water\",\"content\":null}],\"seen\":{\"#intelToast\":7,\"caseFound\":1,\"rule_tide\":1,\"intro\":1,\"opening\":1,\"rule_wandel\":1,\"protect\":1,\"tutRes\":1,\"rule_sap\":1,\"listenCase\":1,\"banyanFriend\":1,\"rule_spring\":1,\"rule_reach\":1,\"nourishCase\":1,\"rule_nests\":1,\"firstMove\":1,\"rule_omen\":1,\"springErfolg\":1,\"firstScout\":1,\"rule_befall\":1,\"catEnjoys\":1,\"exposed\":1,\"rule_nestfight\":1,\"banyanSeen\":1,\"rule_rot\":1,\"rule_defence\":1,\"seam\":1,\"listen\":1,\"springUse\":1,\"sight_Castaway\":1,\"stage_Castaway\":1,\"nourish\":1,\"rootGrow\":1,\"inf5\":1,\"rule_boss\":1,\"#bossDay1\":2,\"rotVisit\":1,\"rotMove\":1,\"bossNestsT\":1,\"#bossDay2\":2,\"memory\":1,\"cleanse\":1,\"towerQuest\":1,\"burn\":1,\"nestGone\":1,\"#bossReloc\":1,\"bossReloc\":1,\"defence\":1,\"nestGrow\":1,\"#bossReinst\":2,\"bossReinst\":1,\"growLv\":1,\"rotWakes\":1,\"fiOmen1\":1,\"firstLoss\":1,\"#bossDemote\":2,\"bossDemote\":1,\"towerStart\":1,\"trebuchet\":1,\"mergeWarn\":1,\"fiOmen2\":1,\"welk\":1,\"sight_Synthesis\":1,\"stage_Synthesis\":1,\"omen\":1,\"omen_slope\":1,\"oddsMemo\":1,\"cuttingQuest\":1,\"rot3\":1,\"unl_rootOrder\":1,\"tower2Start\":1,\"omen_grove\":1}}}", T46: 'eyJ2IjoxLCJtb2R1bGUiOiJtYXAiLCJraW5kIjoiZW5kIiwidGlkZSI6NDYsIm0iOnsiRyI6eyJzdGFydCI6NCwiYmFueWFuIjo1LCJnZWNrbyI6MSwiZnJ1aXQiOjYsImZsb3RzYW0iOjcsIm5lc3QiOjMsIndyZWNrIjo0MSwiY29jbyI6WzAsMl0sImF0Ijo1LCJnZXplaXQiOjEsImdtYXgiOjgsInNwcmluZyI6NCwic3ByaW5nTWF4Ijo0LCJzcHJpbmdTcmMiOlsiaXNsYW5kIG1hcCB1bmxvY2tlZCIsImJhbnlhbiIsImJyaWVmY2FzZSBmb3VuZCIsImdlY2tvIl0sIndhbmRlbCI6MjAsIndGcmVlIjo4LCJzYXBHcm93IjozOC43NSwic2FwUHJvZCI6MS4yNSwicHJpbyI6MC43NSwib3JkZXIiOiJyb290cyIsInJvb3RUYXJnZXQiOi0xLCJ1bmwiOnsibGlzdGVuIjp0cnVlLCJjb2Fyc2UiOnRydWUsInJvb3RPcmRlciI6dHJ1ZSwidG93ZXIiOnRydWUsImNsZWFuUm90Ijp0cnVlLCJmaW5lIjp0cnVlLCJhYmxlZ2VyIjp0cnVlLCJjbGVhblJvdDIiOnRydWUsImRlZXBSb290cyI6dHJ1ZX0sImJhbnlhbnMiOls1LDEzXSwidG93ZXIiOnRydWUsImN1dHRpbmciOmZhbHNlLCJtYXBTcGVudCI6NDEsImxhc3RTYXAiOjMyLCJzY2VuIjoicmVhbCIsInJlcyI6eyJmcnVpdCI6MjEsImNvY28iOjQyLCJncmVlbiI6MzR9LCJmcmllbmRzIjp7ImJhbnlhbiI6dHJ1ZSwiZ2Vja28iOnRydWV9LCJyZWdpb25PcGVuIjp7IjEiOnRydWV9LCJ0aWRlIjo0NSwib21lbiI6ImJlYWNoIiwiZXMiOnsibW92ZSI6NCwiY2xlYW5zZSI6MSwicm9vdFRhcmdldCI6MSwib3BlblRyZWUiOjEsImhlbGQiOjIsImhpdCI6Mn0sImNvbGxhcHNlcyI6MSwiZGVjayI6WyJncm92ZSIsImp1bmdsZSIsInNsb3BlIiwic2xvcGUiLCJqdW5nbGUiLCJzbG9wZSJdLCJwaGFzZSI6ImZsb29kIiwib3ZlciI6ZmFsc2UsImJsZXZlbCI6MTAsIm5lc3RzIjpbMywxNywyMywzNiwxMCwxOF0sIm1lbW9yaWVzIjpbImludm9pY2UiXSwiaW5mIjowLCJrZXkiOmZhbHNlLCJjYXZlIjoyMiwiZ2F0ZSI6MTUsImRlc2NlbnQiOjAsImRlc2NUaWRlIjotMSwiYmVsb3ciOmZhbHNlLCJjYXZlQyI6W10sImNhdmVUIjp7fSwiY2F0RmF0ZSI6bnVsbCwid2FuZGVsTWF4IjoyMCwiZmxhZ3MiOnt9LCJtb3VudGFpbiI6ZmFsc2UsImxhdmFUaWRlIjotMSwiY29sbGFwc2UiOmZhbHNlLCJza2lwQmVhY2giOmZhbHNlLCJib2FyZCI6eyJ0ciI6NzYsInN0Ijo3NiwiYmUiOjgwLCJpbnRlbCI6MTMsIm9mZiI6eyJraW5kIjoicmVzdHJ1Y3R1cmUiLCJuYW1lIjoiUmVzdHJ1Y3R1cmluZyIsInN0YXJ0Ijo0NSwiZW5kIjo0OCwiZG9uZSI6ZmFsc2UsIm4iOjF9LCJwYXVzZSI6NDAsIm5leHRPZmZlciI6NDYsIm9mZmVycyI6MiwidGFrZW4iOjIsInBlbmRpbmdEaXIiOjB9LCJib3NzIjp7ImFsaXZlIjpmYWxzZSwicmV2ZWFsZWQiOnRydWUsInN0YWdlIjoyLCJhdCI6LTEsInJlYyI6MSwicmVhZHkiOmZhbHNlLCJmaWdodCI6ZmFsc2UsIm5lc3RzIjpbMTAsMThdLCJmaXJzdExvbmciOmZhbHNlfSwibGFzdFByaW9UaWRlIjo0NSwiYXJtaWVzIjpbeyJpZCI6MCwiYXQiOjIxLCJzdHIiOjUsImVsaXRlIjpmYWxzZSwiZGVhZCI6ZmFsc2UsInBoIjoxLjI2MzUyNDYzNjU3NjIzNDUsInByZXYiOjIzfSx7ImlkIjoxLCJhdCI6MjYsInN0ciI6NiwiZWxpdGUiOmZhbHNlLCJkZWFkIjpmYWxzZSwicGgiOjAuNDk3OTg4Mjg3NDc5Nzc4MSwicHJldiI6MzZ9LHsiaWQiOjIsImF0IjozMSwic3RyIjo4LCJlbGl0ZSI6dHJ1ZSwiZGVhZCI6ZmFsc2UsInBoIjoxLjc2MjI2MzcwMzUxNTM0OTksInByZXYiOjM5fV0sIm9mZk4iOjEsIm9mZkxvc3QiOjAsIm1vdmVzIjo1OSwiZXhwbEViYiI6MCwiY2xlYW5UYXJnZXQiOi0xLCJsYXN0U3RhZ2UiOiJTdXJyZW5kZXIiLCJ0MCI6MTgsInRhbGtFYmIiOjEsImJtUmVmIjoxLCJsYXN0QmVhY2giOnsid2luIjpmYWxzZSwid2F2ZSI6MjcsImtpbGxzIjoxMywidG90YWwiOjMyLCJlYXJuZWQiOjI3LCJncmVlbiI6MzQsImJvc3NEb3duIjpmYWxzZSwidHVycmV0Ijp0cnVlLCJib3NzIjpudWxsfSwic3RhcnRlZCI6dHJ1ZSwidHJlZUNhblNpbmNlIjotMSwiYldhcm4xIjpmYWxzZSwiYldhcm4yIjpmYWxzZSwiYm1Bcm0iOmZhbHNlLCJ0cmVlU2VlbiI6dHJ1ZSwiZ2Vja29GZWQiOjEsImdlY2tvRmVkVGlkZSI6MjAsIm5vVGlkZSI6NCwiYm1SZXZlYWxUaWRlIjo0NSwiY2FzZUZvdW5kIjp0cnVlLCJ0b3dlclBhaWQiOnRydWUsIndhc3RlZCI6MiwiYXJteU4iOjF9LCJUIjpbeyJzdGF0ZSI6MiwiYiI6MCwibmFtZSI6IkNvY29udXQgcGFsbXMiLCJyb290ZWQiOnRydWUsInJzIjozLCJwcm90Ijp0cnVlLCJleGgiOjAsInR5cGUiOiJncm92ZSIsImNvbnRlbnQiOnsia2luZCI6InJlcyIsInJlcyI6ImNvY28iLCJpY29uIjoi8J-lpSJ9fSx7InN0YXRlIjoyLCJiIjowLCJuYW1lIjoiUGFsbSBncm92ZSIsInJvb3RlZCI6dHJ1ZSwicnMiOjMsInByb3QiOnRydWUsImV4aCI6MCwicm90Qm9ybiI6MjMsInR5cGUiOiJqdW5nbGUiLCJjb250ZW50Ijp7ImtpbmQiOiJnZWNrbyIsImljb24iOiLwn6aOIn19LHsic3RhdGUiOjIsImIiOjAsIm5hbWUiOiJDb2NvbnV0IHBhbG1zIiwicm9vdGVkIjp0cnVlLCJycyI6MiwicHJvdCI6dHJ1ZSwiZXhoIjowLCJyb3RCb3JuIjozMCwidHlwZSI6Imdyb3ZlIiwiY29udGVudCI6eyJraW5kIjoicmVzIiwicmVzIjoiY29jbyIsImljb24iOiLwn6WlIn19LHsic3RhdGUiOjIsImIiOjAsInNvdXJjZSI6bnVsbCwibmFtZSI6IkNsZWFuc2VkIHNob3JlIiwicm9vdGVkIjp0cnVlLCJycyI6MiwicHJvdCI6dHJ1ZSwiZXhoIjowLCJyb3RCb3JuIjoyMCwidHlwZSI6ImJlYWNoIiwiY29udGVudCI6bnVsbH0seyJzdGF0ZSI6MiwiYiI6MCwibmFtZSI6IkNyYWIgQmVhY2giLCJyb290ZWQiOnRydWUsInJzIjozLCJwcm90Ijp0cnVlLCJleGgiOjAsInR5cGUiOiJiZWFjaCIsImNvbnRlbnQiOnsia2luZCI6InN0YXJ0In19LHsic3RhdGUiOjIsImIiOjAsIm5hbWUiOiJUaGUgc3ByaW5nIiwicm9vdGVkIjp0cnVlLCJycyI6MywicHJvdCI6dHJ1ZSwiZXhoIjowLCJyb3RCb3JuIjo0NCwidHlwZSI6Imp1bmdsZSIsImNvbnRlbnQiOnsia2luZCI6ImJhbnlhbiIsImljb24iOiLwn4y_In19LHsic3RhdGUiOjIsImIiOjAsIm5hbWUiOiJCcmVhZGZydWl0IGdyb3ZlIiwicm9vdGVkIjp0cnVlLCJycyI6MywicHJvdCI6dHJ1ZSwiZXhoIjowLCJ0eXBlIjoiZ3JvdmUiLCJjb250ZW50Ijp7ImtpbmQiOiJyZXMiLCJyZXMiOiJmcnVpdCIsImljb24iOiLwn42eIn19LHsic3RhdGUiOjIsImIiOjAsIm5hbWUiOiJGbG90c2FtIGNvdmUiLCJyb290ZWQiOnRydWUsInJzIjoxLCJwcm90Ijp0cnVlLCJleGgiOjAsInJvdEJvcm4iOjE4LCJ0eXBlIjoiYmVhY2giLCJjb250ZW50Ijp7ImtpbmQiOiJtZW1vcnkiLCJpY29uIjoi4pymIn19LHsic3RhdGUiOjIsImIiOjAsIm5hbWUiOiJDbGlmZi10b3AgZ3JvdmUiLCJyb290ZWQiOnRydWUsInJzIjoyLCJwcm90Ijp0cnVlLCJleGgiOjAsInJvdEJvcm4iOjQzLCJ0eXBlIjoiZ3JvdmUiLCJjb250ZW50IjpudWxsfSx7InN0YXRlIjoyLCJiIjowLCJuYW1lIjoiQ2xpZmYtdG9wIGdyb3ZlIiwicm9vdGVkIjp0cnVlLCJycyI6MiwicHJvdCI6dHJ1ZSwiZXhoIjowLCJ0eXBlIjoiZ3JvdmUiLCJjb250ZW50IjpudWxsfSx7InN0YXRlIjoyLCJiIjozLCJzb3VyY2UiOm51bGwsIm93bmVyIjpudWxsLCJuYW1lIjoiQ2xlYW5zZWQgaG9sbG93Iiwicm9vdGVkIjpmYWxzZSwicnMiOjAsInByb3QiOnRydWUsImV4aCI6MCwicm90Qm9ybiI6NDEsInR5cGUiOiJncm92ZSIsImNvbnRlbnQiOm51bGx9LHsic3RhdGUiOjEsImIiOjAsIm5hbWUiOiJDbGlmZi10b3AgZ3JvdmUiLCJyb290ZWQiOmZhbHNlLCJycyI6MCwicHJvdCI6ZmFsc2UsImV4aCI6MCwidHlwZSI6Imdyb3ZlIiwiY29udGVudCI6bnVsbH0seyJzdGF0ZSI6MCwiYiI6MCwibmFtZSI6IkNsaWZmLXRvcCBncm92ZSIsInJvb3RlZCI6ZmFsc2UsInJzIjowLCJwcm90IjpmYWxzZSwiZXhoIjowLCJ0eXBlIjoiZ3JvdmUiLCJjb250ZW50IjpudWxsfSx7InN0YXRlIjoyLCJiIjowLCJuYW1lIjoiQ2xpZmYtdG9wIGp1bmdsZSIsInJvb3RlZCI6dHJ1ZSwicnMiOjMsInByb3QiOnRydWUsImV4aCI6MCwiYWJsZWdlciI6dHJ1ZSwic2FjIjowLCJyb3RCb3JuIjo0MywidHlwZSI6Imp1bmdsZSIsImNvbnRlbnQiOm51bGx9LHsic3RhdGUiOjAsImIiOjAsIm5hbWUiOiJDbGlmZi10b3AganVuZ2xlIiwicm9vdGVkIjpmYWxzZSwicnMiOjAsInByb3QiOmZhbHNlLCJleGgiOjAsInR5cGUiOiJqdW5nbGUiLCJjb250ZW50IjpudWxsfSx7InN0YXRlIjoyLCJiIjowLCJuYW1lIjoiVGhlIHJ1c3RlZCBnYXRlIiwicm9vdGVkIjp0cnVlLCJycyI6MiwicHJvdCI6dHJ1ZSwiZXhoIjowLCJyb3RCb3JuIjoyMSwidHlwZSI6Imp1bmdsZSIsImNvbnRlbnQiOm51bGx9LHsic3RhdGUiOjEsImIiOjMsIm5hbWUiOiJDbGlmZi10b3AgZ3JvdmUiLCJyb290ZWQiOmZhbHNlLCJycyI6MCwicHJvdCI6ZmFsc2UsImV4aCI6MCwicm90Qm9ybiI6MTksInR5cGUiOiJncm92ZSIsImNvbnRlbnQiOm51bGx9LHsic3RhdGUiOjIsImIiOjAsInNvdXJjZSI6bnVsbCwibmFtZSI6IkNsZWFuc2VkIHNob3JlIiwicm9vdGVkIjp0cnVlLCJycyI6MiwicHJvdCI6dHJ1ZSwiZXhoIjowLCJ0eXBlIjoianVuZ2xlIiwiY29udGVudCI6bnVsbH0seyJzdGF0ZSI6MiwiYiI6MSwic291cmNlIjpudWxsLCJvd25lciI6bnVsbCwibmFtZSI6IkNsZWFuc2VkIGhvbGxvdyIsInJvb3RlZCI6ZmFsc2UsInJzIjowLCJwcm90Ijp0cnVlLCJleGgiOjAsInJvdEJvcm4iOjQ1LCJ0eXBlIjoiZ3JvdmUiLCJjb250ZW50IjpudWxsfSx7InN0YXRlIjoxLCJiIjozLCJuYW1lIjoiQ2xpZmYtdG9wIGdyb3ZlIiwicm9vdGVkIjpmYWxzZSwicnMiOjAsInByb3QiOmZhbHNlLCJleGgiOjAsInJvdEJvcm4iOjE5LCJ0eXBlIjoiZ3JvdmUiLCJjb250ZW50IjpudWxsfSx7InN0YXRlIjowLCJiIjowLCJuYW1lIjoiSnVuZ2xlIiwicm9vdGVkIjpmYWxzZSwicnMiOjAsInByb3QiOmZhbHNlLCJleGgiOjAsInR5cGUiOiJqdW5nbGUiLCJjb250ZW50IjpudWxsfSx7InN0YXRlIjoxLCJiIjozLCJuYW1lIjoiRmlyZSBNb3VudGFpbiIsInJvb3RlZCI6ZmFsc2UsInJzIjowLCJwcm90IjpmYWxzZSwiZXhoIjowLCJyb3RCb3JuIjoyMiwidHlwZSI6InNsb3BlIiwiY29udGVudCI6bnVsbH0seyJzdGF0ZSI6MCwiYiI6MCwic291cmNlIjpudWxsLCJuYW1lIjoiQ2F2ZSBtb3V0aCIsInJvb3RlZCI6ZmFsc2UsInJzIjowLCJwcm90IjpmYWxzZSwiZXhoIjowLCJ0eXBlIjoianVuZ2xlIiwiY29udGVudCI6eyJraW5kIjoiY2F2ZSIsImljb24iOiLwn6aHIn19LHsic3RhdGUiOjEsImIiOjMsInNvdXJjZSI6Im5lc3QiLCJuYW1lIjoiUm90dGluZyBzbG9wZSIsInJvb3RlZCI6ZmFsc2UsInJzIjowLCJwcm90IjpmYWxzZSwiZXhoIjowLCJ0eXBlIjoic2xvcGUiLCJjb250ZW50IjpudWxsfSx7InN0YXRlIjowLCJiIjozLCJuYW1lIjoiR3JvdmUiLCJyb290ZWQiOmZhbHNlLCJycyI6MCwicHJvdCI6ZmFsc2UsImV4aCI6MCwicm90Qm9ybiI6MTksInR5cGUiOiJncm92ZSIsImNvbnRlbnQiOm51bGx9LHsic3RhdGUiOjAsImIiOjMsIm5hbWUiOiJKdW5nbGUiLCJyb290ZWQiOmZhbHNlLCJycyI6MCwicHJvdCI6ZmFsc2UsImV4aCI6MCwicm90Qm9ybiI6MzQsInR5cGUiOiJqdW5nbGUiLCJjb250ZW50IjpudWxsfSx7InN0YXRlIjoxLCJiIjozLCJuYW1lIjoiVGhlIHRhbmdsZSIsInJvb3RlZCI6ZmFsc2UsInJzIjowLCJwcm90IjpmYWxzZSwiZXhoIjowLCJyb3RCb3JuIjoyMSwidHlwZSI6InRhbmdsZSIsImNvbnRlbnQiOm51bGx9LHsic3RhdGUiOjAsImIiOjAsIm5hbWUiOiJUaGUgdGFuZ2xlIiwicm9vdGVkIjpmYWxzZSwicnMiOjAsInByb3QiOmZhbHNlLCJleGgiOjAsInR5cGUiOiJ0YW5nbGUiLCJjb250ZW50IjpudWxsfSx7InN0YXRlIjowLCJiIjozLCJuYW1lIjoiRmlyZSBNb3VudGFpbiIsInJvb3RlZCI6ZmFsc2UsInJzIjowLCJwcm90IjpmYWxzZSwiZXhoIjowLCJyb3RCb3JuIjozMiwidHlwZSI6InNsb3BlIiwiY29udGVudCI6bnVsbH0seyJzdGF0ZSI6MCwiYiI6MCwibmFtZSI6Ikdyb3ZlIiwicm9vdGVkIjpmYWxzZSwicnMiOjAsInByb3QiOmZhbHNlLCJleGgiOjAsInR5cGUiOiJncm92ZSIsImNvbnRlbnQiOm51bGx9LHsic3RhdGUiOjEsImIiOjMsIm5hbWUiOiJMYXZhIGZpZWxkcyIsInJvb3RlZCI6ZmFsc2UsInJzIjowLCJwcm90IjpmYWxzZSwiZXhoIjowLCJyb3RCb3JuIjoyNSwidHlwZSI6ImxhdmEiLCJjb250ZW50IjpudWxsfSx7InN0YXRlIjoxLCJiIjozLCJuYW1lIjoiR3JvdmUiLCJyb290ZWQiOmZhbHNlLCJycyI6MCwicHJvdCI6ZmFsc2UsImV4aCI6MCwicm90Qm9ybiI6MTksInR5cGUiOiJncm92ZSIsImNvbnRlbnQiOm51bGx9LHsic3RhdGUiOjEsImIiOjMsIm5hbWUiOiJUaGUgdGFuZ2xlIiwicm9vdGVkIjpmYWxzZSwicnMiOjAsInByb3QiOmZhbHNlLCJleGgiOjAsInJvdEJvcm4iOjIxLCJ0eXBlIjoidGFuZ2xlIiwiY29udGVudCI6bnVsbH0seyJzdGF0ZSI6MCwiYiI6MywibmFtZSI6IkJlYWNoIiwicm9vdGVkIjpmYWxzZSwicnMiOjAsInByb3QiOmZhbHNlLCJleGgiOjAsInJvdEJvcm4iOjE4LCJ0eXBlIjoiYmVhY2giLCJjb250ZW50IjpudWxsfSx7InN0YXRlIjowLCJiIjowLCJuYW1lIjoiQmVhY2giLCJyb290ZWQiOmZhbHNlLCJycyI6MCwicHJvdCI6ZmFsc2UsImV4aCI6MCwidHlwZSI6ImJlYWNoIiwiY29udGVudCI6bnVsbH0seyJzdGF0ZSI6MCwiYiI6MCwibmFtZSI6IlRoZSB0YW5nbGUiLCJyb290ZWQiOmZhbHNlLCJycyI6MCwicHJvdCI6ZmFsc2UsImV4aCI6MCwidHlwZSI6InRhbmdsZSIsImNvbnRlbnQiOm51bGx9LHsic3RhdGUiOjEsImIiOjMsInNvdXJjZSI6Im5lc3QiLCJuYW1lIjoiUm90dGluZyBsYWdvb24gc2hvcmUiLCJyb290ZWQiOmZhbHNlLCJycyI6MCwicHJvdCI6ZmFsc2UsImV4aCI6MCwidHlwZSI6Imdyb3ZlIiwiY29udGVudCI6bnVsbH0seyJzdGF0ZSI6MCwiYiI6MSwibmFtZSI6IkJlYWNoIiwicm9vdGVkIjpmYWxzZSwicnMiOjAsInByb3QiOmZhbHNlLCJleGgiOjAsInJvdEJvcm4iOjQ1LCJ0eXBlIjoiYmVhY2giLCJjb250ZW50IjpudWxsfSx7InN0YXRlIjowLCJiIjowLCJuYW1lIjoiR3JvdmUiLCJyb290ZWQiOmZhbHNlLCJycyI6MCwicHJvdCI6ZmFsc2UsImV4aCI6MCwidHlwZSI6Imdyb3ZlIiwiY29udGVudCI6bnVsbH0seyJzdGF0ZSI6MSwiYiI6MywibmFtZSI6IkJlYWNoIiwicm9vdGVkIjpmYWxzZSwicnMiOjAsInByb3QiOmZhbHNlLCJleGgiOjAsInJvdEJvcm4iOjQ1LCJ0eXBlIjoiYmVhY2giLCJjb250ZW50IjpudWxsfSx7InN0YXRlIjowLCJiIjozLCJuYW1lIjoiQmVhY2giLCJyb290ZWQiOmZhbHNlLCJycyI6MCwicHJvdCI6ZmFsc2UsImV4aCI6MCwicm90Qm9ybiI6NDEsInR5cGUiOiJiZWFjaCIsImNvbnRlbnQiOm51bGx9LHsic3RhdGUiOjAsImIiOjMsInNvdXJjZSI6IndyZWNrIiwibmFtZSI6IlRoZSB3cmVjayIsInJvb3RlZCI6ZmFsc2UsInJzIjowLCJwcm90IjpmYWxzZSwiZXhoIjowLCJ0eXBlIjoid2F0ZXIiLCJjb250ZW50IjpudWxsfSx7InN0YXRlIjowLCJiIjowLCJuYW1lIjoiUmVlZiB3YXRlcnMiLCJyb290ZWQiOmZhbHNlLCJycyI6MCwicHJvdCI6ZmFsc2UsImV4aCI6MCwidHlwZSI6IndhdGVyIiwiY29udGVudCI6bnVsbH0seyJzdGF0ZSI6MCwiYiI6MCwibmFtZSI6IlJlZWYgd2F0ZXJzIiwicm9vdGVkIjpmYWxzZSwicnMiOjAsInByb3QiOmZhbHNlLCJleGgiOjAsInR5cGUiOiJ3YXRlciIsImNvbnRlbnQiOm51bGx9LHsic3RhdGUiOjEsImIiOjAsIm5hbWUiOiJSZWVmIHdhdGVycyIsInJvb3RlZCI6ZmFsc2UsInJzIjowLCJwcm90IjpmYWxzZSwiZXhoIjowLCJ0eXBlIjoid2F0ZXIiLCJjb250ZW50IjpudWxsfV0sInNlZW4iOnsicnVsZV9yb3QiOjEsInJ1bGVfb21lbiI6MSwicnVsZV90aWRlIjoxLCJpbnRybyI6MSwib3BlbmluZyI6MSwicnVsZV9kZWZlbmNlIjoxLCJkZWZlbmNlIjoxLCJydWxlX2JlZmFsbCI6MSwibWVyZ2VXYXJuIjoxLCJydWxlX3dhbmRlbCI6MSwiZXhwb3NlZCI6MSwicnVsZV9uZXN0ZmlnaHQiOjEsInJ1bGVfbmVzdHMiOjEsInJ1bGVfc3ByaW5nIjoxLCJmaXJzdE1vdmUiOjEsImhhcnZlc3QiOjEsImJhbnlhblZpc2l0IjoxLCJiYW55YW5GcmllbmQiOjEsInJ1bGVfc2FwIjoxLCJyb3RNb3ZlIjoxLCJzaWdodF9DYXN0YXdheSI6MSwic3RhZ2VfQ2FzdGF3YXkiOjEsIm1lcmdlZCI6MSwicnVsZV9ib3NzIjoxLCJsaXN0ZW5DYXNlIjoxLCJnZWNrb1F1ZXN0IjoxLCJydWxlX3JlYWNoIjoxLCJub3VyaXNoQ2FzZSI6MSwiI2Jvc3NEYXkxIjo2LCJmaXJzdFNjb3V0IjoxLCJzaWdodF9TeW50aGVzaXMiOjEsInN0YWdlX1N5bnRoZXNpcyI6MSwib3ZlcmZsb3ciOjEsIiNib3NzRGF5MiI6NCwiY2xlYW5zZSI6MSwicHJvdGVjdCI6MSwibmVzdEdvbmUiOjEsImluZjUiOjEsIm9kZHNNZW1vIjoxLCIjYldhcm4xIjo1LCIjYm9zc1JlaW5zdCI6NCwiYm9zc1JlaW5zdCI6MSwiZmlyc3RMb3NzIjoxLCJoYXJ2ZXN0MiI6MSwiI2ludGVsVG9hc3QiOjcsImNhc2VGb3VuZCI6MSwic2lnaHRfSXNsYW5kZXIiOjEsInN0YWdlX0lzbGFuZGVyIjoxLCJiYW55YW5TZWVuIjoxLCJzZWFtIjoxLCJzcHJpbmdVc2UiOjEsIm5lc3RHcm93IjoxLCIjYm9zc0RlbW90ZSI6NSwiYm9zc0RlbW90ZSI6MSwic3RhZ2VfU3VycmVuZGVyIjoxLCJ0b3dlclF1ZXN0IjoxLCJsaXN0ZW4iOjEsIm5vdXJpc2giOjEsInJvb3RHcm93IjoxLCJncm93THYiOjEsInJvdFZpc2l0IjoxLCJtZW1vcnkiOjEsInRvd2VyU3RhcnQiOjEsIm9tZW4iOjEsImJvc3NOZXN0c1QiOjEsIm9tZW5fYmVhY2giOjEsInJvdDMiOjEsImNsZWFuUm90IjoxLCJvbWVuX3Nsb3BlIjoxLCJvbWVuX2dyb3ZlIjoxLCJsb3dUaWRlIjoxLCJvbWVuX2p1bmdsZSI6MSwiZmlyZSI6MSwidW5sX2NsZWFuUm90MiI6MSwiZmlyc3RIb2xkIjoxLCJiYW50ZXIxMSI6MSwiYmFudGVyMTQiOjEsImJhbnRlcjEiOjEsImN1dHRpbmdRdWVzdCI6MSwiYmFudGVyOCI6MSwiI2JXYXJuMiI6MSwidW5sX2RlZXBSb290cyI6MSwidGFuZ2xlIjoxLCJiYW50ZXI2IjoxLCJydWxlX2FybWllcyI6MSwiYXJtaWVzMSI6MSwib2ZmVF9yZXN0cnVjdHVyZSI6MX19fQ', T51: 'eyJ2IjoxLCJtb2R1bGUiOiJtYXAiLCJraW5kIjoiZW5kIiwidGlkZSI6NTEsIm0iOnsiRyI6eyJzdGFydCI6NCwiYmFueWFuIjo1LCJnZWNrbyI6MSwiZnJ1aXQiOjYsImZsb3RzYW0iOjcsIm5lc3QiOjMsIndyZWNrIjo0MSwiY29jbyI6WzAsMl0sImF0Ijo1LCJnZXplaXQiOjgsImdtYXgiOjgsInNwcmluZyI6NCwic3ByaW5nTWF4Ijo0LCJzcHJpbmdTcmMiOlsiaXNsYW5kIG1hcCB1bmxvY2tlZCIsImJhbnlhbiIsImJyaWVmY2FzZSBmb3VuZCIsImdlY2tvIl0sIndhbmRlbCI6MjAsIndGcmVlIjoxMSwic2FwR3JvdyI6MTAuNzUsInNhcFByb2QiOjM2LjI1LCJwcmlvIjowLjUsIm9yZGVyIjoiYWJsZWdlciIsInJvb3RUYXJnZXQiOi0xLCJ1bmwiOnsibGlzdGVuIjp0cnVlLCJjb2Fyc2UiOnRydWUsInJvb3RPcmRlciI6dHJ1ZSwidG93ZXIiOnRydWUsImNsZWFuUm90Ijp0cnVlLCJmaW5lIjp0cnVlLCJhYmxlZ2VyIjp0cnVlLCJjbGVhblJvdDIiOnRydWUsImRlZXBSb290cyI6dHJ1ZX0sImJhbnlhbnMiOls1LDEzXSwidG93ZXIiOnRydWUsImN1dHRpbmciOmZhbHNlLCJtYXBTcGVudCI6NDEsImxhc3RTYXAiOjMyLCJzY2VuIjoicmVhbCIsInJlcyI6eyJmcnVpdCI6MjYsImNvY28iOjUyLCJncmVlbiI6MjI5fSwiZnJpZW5kcyI6eyJiYW55YW4iOnRydWUsImdlY2tvIjp0cnVlfSwicmVnaW9uT3BlbiI6eyIxIjp0cnVlfSwidGlkZSI6NTAsIm9tZW4iOiJiZWFjaCIsImVzIjp7ImhlbGQiOjJ9LCJjb2xsYXBzZXMiOjEsImRlY2siOlsiZ3JvdmUiLCJqdW5nbGUiLCJqdW5nbGUiLCJiZWFjaCIsImp1bmdsZSIsImJlYWNoIiwiZ3JvdmUiLCJzbG9wZSIsInNsb3BlIiwic2xvcGUiXSwicGhhc2UiOiJmbG9vZCIsIm92ZXIiOmZhbHNlLCJibGV2ZWwiOjEzLCJuZXN0cyI6WzMsMTcsMjMsMzYsMTAsMThdLCJtZW1vcmllcyI6WyJpbnZvaWNlIl0sImluZiI6MCwia2V5Ijp0cnVlLCJjYXZlIjoyMiwiZ2F0ZSI6MTUsImRlc2NlbnQiOjAsImRlc2NUaWRlIjotMSwiYmVsb3ciOmZhbHNlLCJjYXZlQyI6W10sImNhdmVUIjp7fSwiY2F0RmF0ZSI6ImdvbmUiLCJ3YW5kZWxNYXgiOjIwLCJmbGFncyI6e30sIm1vdW50YWluIjpmYWxzZSwibGF2YVRpZGUiOi0xLCJjb2xsYXBzZSI6ZmFsc2UsInNraXBCZWFjaCI6ZmFsc2UsImJvYXJkIjp7InRyIjo3Niwic3QiOjU2LCJiZSI6NTUsImludGVsIjoxNCwib2ZmIjp7ImtpbmQiOiJyZXN0cnVjdHVyZSIsIm5hbWUiOiJSZXN0cnVjdHVyaW5nIiwic3RhcnQiOjQ1LCJlbmQiOjQ4LCJkb25lIjp0cnVlLCJuIjoxfSwicGF1c2UiOjQwLCJuZXh0T2ZmZXIiOjYzLCJvZmZlcnMiOjMsInRha2VuIjoyLCJwZW5kaW5nRGlyIjowLCJkZWNsaW5lZCI6MX0sImJvc3MiOnsiYWxpdmUiOmZhbHNlLCJyZXZlYWxlZCI6dHJ1ZSwic3RhZ2UiOjIsImF0IjotMSwicmVjIjoxLCJyZWFkeSI6ZmFsc2UsImZpZ2h0IjpmYWxzZSwibmVzdHMiOlsxMCwxOF0sImZpcnN0TG9uZyI6ZmFsc2V9LCJsYXN0UHJpb1RpZGUiOjQ5LCJhcm1pZXMiOlt7ImlkIjowLCJhdCI6NSwic3RyIjo1LCJlbGl0ZSI6ZmFsc2UsImRlYWQiOnRydWUsInBoIjoxLjI2MzUyNDYzNjU3NjIzNDUsInByZXYiOjIxfSx7ImlkIjoxLCJhdCI6NSwic3RyIjo1LCJlbGl0ZSI6ZmFsc2UsImRlYWQiOnRydWUsInBoIjowLjQ5Nzk4ODI4NzQ3OTc3ODEsInByZXYiOjI2fSx7ImlkIjoyLCJhdCI6NSwic3RyIjo4LCJlbGl0ZSI6dHJ1ZSwiZGVhZCI6dHJ1ZSwicGgiOjEuNzYyMjYzNzAzNTE1MzQ5OSwicHJldiI6MjF9XSwib2ZmTiI6MSwib2ZmTG9zdCI6MCwibW92ZXMiOjU5LCJleHBsRWJiIjowLCJjbGVhblRhcmdldCI6LTEsImxhc3RTdGFnZSI6IlN1cnJlbmRlciIsInQwIjoxOCwidGFsa0ViYiI6MSwiYm1SZWYiOjIsImxhc3RCZWFjaCI6eyJ3aW4iOmZhbHNlLCJ3YXZlIjoyOSwia2lsbHMiOjYsInRvdGFsIjozNCwiZWFybmVkIjoxMCwiZ3JlZW4iOjIyOSwiYm9zc0Rvd24iOmZhbHNlLCJ0dXJyZXQiOnRydWUsImJvc3MiOm51bGx9LCJzdGFydGVkIjp0cnVlLCJ0cmVlQ2FuU2luY2UiOi0xLCJiV2FybjEiOmZhbHNlLCJiV2FybjIiOmZhbHNlLCJibUFybSI6dHJ1ZSwidHJlZVNlZW4iOnRydWUsImdlY2tvRmVkIjoxLCJnZWNrb0ZlZFRpZGUiOjIwLCJub1RpZGUiOjQsImJtUmV2ZWFsVGlkZSI6NDUsImNhc2VGb3VuZCI6dHJ1ZSwidG93ZXJQYWlkIjp0cnVlLCJ3YXN0ZWQiOjcsImFybXlOIjoxLCJvZmZDdXQiOiJcbkNvc3Qgc2F2aW5nczogdGhlIFJvdHRpbmcgc2xvcGUgbmVzdCBoYXMgYmVlbiBjbG9zZWQuIEl0cyByb3Qgc3RheXM7IG5vdGhpbmcgZmVlZHMgaXQgYW55IG1vcmUuIiwib2ZmU3VtIjoiU3RhYmlsaXR5IOKIkjIwLCBCZWxpZWYg4oiSMTAiLCJmaW5hbGUiOjMsImNhdEF0Ijo1MCwiZnJlZVBsYXkiOnRydWUsIm5leHRPZmYiOjU5fSwiVCI6W3sic3RhdGUiOjIsImIiOjAsIm5hbWUiOiJDb2NvbnV0IHBhbG1zIiwicm9vdGVkIjp0cnVlLCJycyI6MywicHJvdCI6dHJ1ZSwiZXhoIjowLCJ0eXBlIjoiZ3JvdmUiLCJjb250ZW50Ijp7ImtpbmQiOiJyZXMiLCJyZXMiOiJjb2NvIiwiaWNvbiI6IvCfpaUifX0seyJzdGF0ZSI6MiwiYiI6MCwibmFtZSI6IlBhbG0gZ3JvdmUiLCJyb290ZWQiOnRydWUsInJzIjozLCJwcm90Ijp0cnVlLCJleGgiOjAsInJvdEJvcm4iOjIzLCJ0eXBlIjoianVuZ2xlIiwiY29udGVudCI6eyJraW5kIjoiZ2Vja28iLCJpY29uIjoi8J-mjiJ9fSx7InN0YXRlIjoyLCJiIjowLCJuYW1lIjoiQ29jb251dCBwYWxtcyIsInJvb3RlZCI6dHJ1ZSwicnMiOjMsInByb3QiOnRydWUsImV4aCI6MCwicm90Qm9ybiI6MzAsInR5cGUiOiJncm92ZSIsImNvbnRlbnQiOnsia2luZCI6InJlcyIsInJlcyI6ImNvY28iLCJpY29uIjoi8J-lpSJ9fSx7InN0YXRlIjoyLCJiIjowLCJzb3VyY2UiOm51bGwsIm5hbWUiOiJDbGVhbnNlZCBzaG9yZSIsInJvb3RlZCI6dHJ1ZSwicnMiOjMsInByb3QiOnRydWUsImV4aCI6MCwicm90Qm9ybiI6MjAsInR5cGUiOiJiZWFjaCIsImNvbnRlbnQiOm51bGx9LHsic3RhdGUiOjIsImIiOjAsIm5hbWUiOiJDcmFiIEJlYWNoIiwicm9vdGVkIjp0cnVlLCJycyI6MywicHJvdCI6dHJ1ZSwiZXhoIjowLCJ0eXBlIjoiYmVhY2giLCJjb250ZW50Ijp7ImtpbmQiOiJzdGFydCJ9fSx7InN0YXRlIjoyLCJiIjowLCJuYW1lIjoiVGhlIHNwcmluZyIsInJvb3RlZCI6dHJ1ZSwicnMiOjMsInByb3QiOnRydWUsImV4aCI6MCwicm90Qm9ybiI6NDQsInR5cGUiOiJqdW5nbGUiLCJjb250ZW50Ijp7ImtpbmQiOiJiYW55YW4iLCJpY29uIjoi8J-MvyJ9fSx7InN0YXRlIjoyLCJiIjowLCJuYW1lIjoiQnJlYWRmcnVpdCBncm92ZSIsInJvb3RlZCI6dHJ1ZSwicnMiOjMsInByb3QiOnRydWUsImV4aCI6MCwidHlwZSI6Imdyb3ZlIiwiY29udGVudCI6eyJraW5kIjoicmVzIiwicmVzIjoiZnJ1aXQiLCJpY29uIjoi8J-NniJ9fSx7InN0YXRlIjoyLCJiIjowLCJuYW1lIjoiRmxvdHNhbSBjb3ZlIiwicm9vdGVkIjp0cnVlLCJycyI6MiwicHJvdCI6dHJ1ZSwiZXhoIjowLCJyb3RCb3JuIjoxOCwidHlwZSI6ImJlYWNoIiwiY29udGVudCI6eyJraW5kIjoibWVtb3J5IiwiaWNvbiI6IuKcpiJ9fSx7InN0YXRlIjoyLCJiIjowLCJuYW1lIjoiQ2xpZmYtdG9wIGdyb3ZlIiwicm9vdGVkIjp0cnVlLCJycyI6MywicHJvdCI6dHJ1ZSwiZXhoIjowLCJyb3RCb3JuIjo0MywidHlwZSI6Imdyb3ZlIiwiY29udGVudCI6bnVsbH0seyJzdGF0ZSI6MiwiYiI6MCwibmFtZSI6IkNsaWZmLXRvcCBncm92ZSIsInJvb3RlZCI6dHJ1ZSwicnMiOjMsInByb3QiOnRydWUsImV4aCI6MCwidHlwZSI6Imdyb3ZlIiwiY29udGVudCI6bnVsbH0seyJzdGF0ZSI6MiwiYiI6Mywic291cmNlIjpudWxsLCJvd25lciI6bnVsbCwibmFtZSI6IkNsZWFuc2VkIGhvbGxvdyIsInJvb3RlZCI6ZmFsc2UsInJzIjowLCJwcm90Ijp0cnVlLCJleGgiOjAsInJvdEJvcm4iOjQxLCJ0eXBlIjoiZ3JvdmUiLCJjb250ZW50IjpudWxsfSx7InN0YXRlIjoxLCJiIjowLCJuYW1lIjoiQ2xpZmYtdG9wIGdyb3ZlIiwicm9vdGVkIjpmYWxzZSwicnMiOjAsInByb3QiOmZhbHNlLCJleGgiOjAsInR5cGUiOiJncm92ZSIsImNvbnRlbnQiOm51bGx9LHsic3RhdGUiOjAsImIiOjMsIm5hbWUiOiJDbGlmZi10b3AgZ3JvdmUiLCJyb290ZWQiOmZhbHNlLCJycyI6MCwicHJvdCI6ZmFsc2UsImV4aCI6MCwicm90Qm9ybiI6NDgsInR5cGUiOiJncm92ZSIsImNvbnRlbnQiOm51bGx9LHsic3RhdGUiOjIsImIiOjAsIm5hbWUiOiJDbGlmZi10b3AganVuZ2xlIiwicm9vdGVkIjp0cnVlLCJycyI6MywicHJvdCI6dHJ1ZSwiZXhoIjowLCJhYmxlZ2VyIjp0cnVlLCJzYWMiOjAsInJvdEJvcm4iOjQzLCJ0eXBlIjoianVuZ2xlIiwiY29udGVudCI6bnVsbH0seyJzdGF0ZSI6MCwiYiI6MCwibmFtZSI6IkNsaWZmLXRvcCBqdW5nbGUiLCJyb290ZWQiOmZhbHNlLCJycyI6MCwicHJvdCI6ZmFsc2UsImV4aCI6MCwidHlwZSI6Imp1bmdsZSIsImNvbnRlbnQiOm51bGx9LHsic3RhdGUiOjIsImIiOjAsIm5hbWUiOiJUaGUgcnVzdGVkIGdhdGUiLCJyb290ZWQiOnRydWUsInJzIjozLCJwcm90Ijp0cnVlLCJleGgiOjAsInJvdEJvcm4iOjIxLCJ0eXBlIjoianVuZ2xlIiwiY29udGVudCI6bnVsbH0seyJzdGF0ZSI6MSwiYiI6MywibmFtZSI6IkNsaWZmLXRvcCBncm92ZSIsInJvb3RlZCI6ZmFsc2UsInJzIjowLCJwcm90IjpmYWxzZSwiZXhoIjowLCJyb3RCb3JuIjoxOSwidHlwZSI6Imdyb3ZlIiwiY29udGVudCI6bnVsbH0seyJzdGF0ZSI6MiwiYiI6MCwic291cmNlIjpudWxsLCJuYW1lIjoiQ2xlYW5zZWQgc2hvcmUiLCJyb290ZWQiOnRydWUsInJzIjozLCJwcm90Ijp0cnVlLCJleGgiOjAsInR5cGUiOiJqdW5nbGUiLCJjb250ZW50IjpudWxsfSx7InN0YXRlIjoyLCJiIjozLCJzb3VyY2UiOm51bGwsIm93bmVyIjpudWxsLCJuYW1lIjoiQ2xlYW5zZWQgaG9sbG93Iiwicm9vdGVkIjpmYWxzZSwicnMiOjAsInByb3QiOnRydWUsImV4aCI6MCwicm90Qm9ybiI6NDUsInR5cGUiOiJncm92ZSIsImNvbnRlbnQiOm51bGx9LHsic3RhdGUiOjEsImIiOjMsIm5hbWUiOiJDbGlmZi10b3AgZ3JvdmUiLCJyb290ZWQiOmZhbHNlLCJycyI6MCwicHJvdCI6ZmFsc2UsImV4aCI6MCwicm90Qm9ybiI6MTksInR5cGUiOiJncm92ZSIsImNvbnRlbnQiOm51bGx9LHsic3RhdGUiOjAsImIiOjAsIm5hbWUiOiJKdW5nbGUiLCJyb290ZWQiOmZhbHNlLCJycyI6MCwicHJvdCI6ZmFsc2UsImV4aCI6MCwidHlwZSI6Imp1bmdsZSIsImNvbnRlbnQiOm51bGx9LHsic3RhdGUiOjEsImIiOjMsIm5hbWUiOiJGaXJlIE1vdW50YWluIiwicm9vdGVkIjpmYWxzZSwicnMiOjAsInByb3QiOmZhbHNlLCJleGgiOjAsInJvdEJvcm4iOjIyLCJ0eXBlIjoic2xvcGUiLCJjb250ZW50IjpudWxsfSx7InN0YXRlIjowLCJiIjowLCJzb3VyY2UiOm51bGwsIm5hbWUiOiJDYXZlIG1vdXRoIiwicm9vdGVkIjpmYWxzZSwicnMiOjAsInByb3QiOmZhbHNlLCJleGgiOjAsInR5cGUiOiJqdW5nbGUiLCJjb250ZW50Ijp7ImtpbmQiOiJjYXZlIiwiaWNvbiI6IvCfpocifX0seyJzdGF0ZSI6MSwiYiI6Mywic291cmNlIjpudWxsLCJuYW1lIjoiQWJhbmRvbmVkIG5lc3QiLCJyb290ZWQiOmZhbHNlLCJycyI6MCwicHJvdCI6ZmFsc2UsImV4aCI6MCwidHlwZSI6InNsb3BlIiwiY29udGVudCI6bnVsbH0seyJzdGF0ZSI6MCwiYiI6MywibmFtZSI6Ikdyb3ZlIiwicm9vdGVkIjpmYWxzZSwicnMiOjAsInByb3QiOmZhbHNlLCJleGgiOjAsInJvdEJvcm4iOjE5LCJ0eXBlIjoiZ3JvdmUiLCJjb250ZW50IjpudWxsfSx7InN0YXRlIjoxLCJiIjozLCJuYW1lIjoiSnVuZ2xlIiwicm9vdGVkIjpmYWxzZSwicnMiOjAsInByb3QiOmZhbHNlLCJleGgiOjAsInJvdEJvcm4iOjM0LCJ0eXBlIjoianVuZ2xlIiwiY29udGVudCI6bnVsbH0seyJzdGF0ZSI6MSwiYiI6MywibmFtZSI6IlRoZSB0YW5nbGUiLCJyb290ZWQiOmZhbHNlLCJycyI6MCwicHJvdCI6ZmFsc2UsImV4aCI6MCwicm90Qm9ybiI6MjEsInR5cGUiOiJ0YW5nbGUiLCJjb250ZW50IjpudWxsfSx7InN0YXRlIjowLCJiIjowLCJuYW1lIjoiVGhlIHRhbmdsZSIsInJvb3RlZCI6ZmFsc2UsInJzIjowLCJwcm90IjpmYWxzZSwiZXhoIjowLCJ0eXBlIjoidGFuZ2xlIiwiY29udGVudCI6bnVsbH0seyJzdGF0ZSI6MCwiYiI6MywibmFtZSI6IkZpcmUgTW91bnRhaW4iLCJyb290ZWQiOmZhbHNlLCJycyI6MCwicHJvdCI6ZmFsc2UsImV4aCI6MCwicm90Qm9ybiI6MzIsInR5cGUiOiJzbG9wZSIsImNvbnRlbnQiOm51bGx9LHsic3RhdGUiOjAsImIiOjAsIm5hbWUiOiJHcm92ZSIsInJvb3RlZCI6ZmFsc2UsInJzIjowLCJwcm90IjpmYWxzZSwiZXhoIjowLCJ0eXBlIjoiZ3JvdmUiLCJjb250ZW50IjpudWxsfSx7InN0YXRlIjoxLCJiIjozLCJuYW1lIjoiTGF2YSBmaWVsZHMiLCJyb290ZWQiOmZhbHNlLCJycyI6MCwicHJvdCI6ZmFsc2UsImV4aCI6MCwicm90Qm9ybiI6MjUsInR5cGUiOiJsYXZhIiwiY29udGVudCI6bnVsbH0seyJzdGF0ZSI6MSwiYiI6MywibmFtZSI6Ikdyb3ZlIiwicm9vdGVkIjpmYWxzZSwicnMiOjAsInByb3QiOmZhbHNlLCJleGgiOjAsInJvdEJvcm4iOjE5LCJ0eXBlIjoiZ3JvdmUiLCJjb250ZW50IjpudWxsfSx7InN0YXRlIjoxLCJiIjozLCJuYW1lIjoiVGhlIHRhbmdsZSIsInJvb3RlZCI6ZmFsc2UsInJzIjowLCJwcm90IjpmYWxzZSwiZXhoIjowLCJyb3RCb3JuIjoyMSwidHlwZSI6InRhbmdsZSIsImNvbnRlbnQiOm51bGx9LHsic3RhdGUiOjAsImIiOjMsIm5hbWUiOiJCZWFjaCIsInJvb3RlZCI6ZmFsc2UsInJzIjowLCJwcm90IjpmYWxzZSwiZXhoIjowLCJyb3RCb3JuIjoxOCwidHlwZSI6ImJlYWNoIiwiY29udGVudCI6bnVsbH0seyJzdGF0ZSI6MCwiYiI6MCwibmFtZSI6IkJlYWNoIiwicm9vdGVkIjpmYWxzZSwicnMiOjAsInByb3QiOmZhbHNlLCJleGgiOjAsInR5cGUiOiJiZWFjaCIsImNvbnRlbnQiOm51bGx9LHsic3RhdGUiOjAsImIiOjAsIm5hbWUiOiJUaGUgdGFuZ2xlIiwicm9vdGVkIjpmYWxzZSwicnMiOjAsInByb3QiOmZhbHNlLCJleGgiOjAsInR5cGUiOiJ0YW5nbGUiLCJjb250ZW50IjpudWxsfSx7InN0YXRlIjoxLCJiIjozLCJzb3VyY2UiOiJuZXN0IiwibmFtZSI6IlJvdHRpbmcgbGFnb29uIHNob3JlIiwicm9vdGVkIjpmYWxzZSwicnMiOjAsInByb3QiOmZhbHNlLCJleGgiOjAsInR5cGUiOiJncm92ZSIsImNvbnRlbnQiOm51bGx9LHsic3RhdGUiOjAsImIiOjMsIm5hbWUiOiJCZWFjaCIsInJvb3RlZCI6ZmFsc2UsInJzIjowLCJwcm90IjpmYWxzZSwiZXhoIjowLCJyb3RCb3JuIjo0NSwidHlwZSI6ImJlYWNoIiwiY29udGVudCI6bnVsbH0seyJzdGF0ZSI6MCwiYiI6MCwibmFtZSI6Ikdyb3ZlIiwicm9vdGVkIjpmYWxzZSwicnMiOjAsInByb3QiOmZhbHNlLCJleGgiOjAsInR5cGUiOiJncm92ZSIsImNvbnRlbnQiOm51bGx9LHsic3RhdGUiOjEsImIiOjMsIm5hbWUiOiJCZWFjaCIsInJvb3RlZCI6ZmFsc2UsInJzIjowLCJwcm90IjpmYWxzZSwiZXhoIjowLCJyb3RCb3JuIjo0NSwidHlwZSI6ImJlYWNoIiwiY29udGVudCI6bnVsbH0seyJzdGF0ZSI6MCwiYiI6MywibmFtZSI6IkJlYWNoIiwicm9vdGVkIjpmYWxzZSwicnMiOjAsInByb3QiOmZhbHNlLCJleGgiOjAsInJvdEJvcm4iOjQxLCJ0eXBlIjoiYmVhY2giLCJjb250ZW50IjpudWxsfSx7InN0YXRlIjowLCJiIjozLCJzb3VyY2UiOiJ3cmVjayIsIm5hbWUiOiJUaGUgd3JlY2siLCJyb290ZWQiOmZhbHNlLCJycyI6MCwicHJvdCI6ZmFsc2UsImV4aCI6MCwidHlwZSI6IndhdGVyIiwiY29udGVudCI6bnVsbH0seyJzdGF0ZSI6MCwiYiI6MCwibmFtZSI6IlJlZWYgd2F0ZXJzIiwicm9vdGVkIjpmYWxzZSwicnMiOjAsInByb3QiOmZhbHNlLCJleGgiOjAsInR5cGUiOiJ3YXRlciIsImNvbnRlbnQiOm51bGx9LHsic3RhdGUiOjAsImIiOjAsIm5hbWUiOiJSZWVmIHdhdGVycyIsInJvb3RlZCI6ZmFsc2UsInJzIjowLCJwcm90IjpmYWxzZSwiZXhoIjowLCJ0eXBlIjoid2F0ZXIiLCJjb250ZW50IjpudWxsfSx7InN0YXRlIjoxLCJiIjowLCJuYW1lIjoiUmVlZiB3YXRlcnMiLCJyb290ZWQiOmZhbHNlLCJycyI6MCwicHJvdCI6ZmFsc2UsImV4aCI6MCwidHlwZSI6IndhdGVyIiwiY29udGVudCI6bnVsbH1dLCJzZWVuIjp7InJ1bGVfcm90IjoxLCJydWxlX29tZW4iOjEsInJ1bGVfdGlkZSI6MSwiaW50cm8iOjEsIm9wZW5pbmciOjEsInJ1bGVfZGVmZW5jZSI6MSwiZGVmZW5jZSI6MSwicnVsZV9iZWZhbGwiOjEsIm1lcmdlV2FybiI6MSwicnVsZV93YW5kZWwiOjEsImV4cG9zZWQiOjEsInJ1bGVfbmVzdGZpZ2h0IjoxLCJydWxlX25lc3RzIjoxLCJydWxlX3NwcmluZyI6MSwiZmlyc3RNb3ZlIjoxLCJoYXJ2ZXN0IjoxLCJiYW55YW5WaXNpdCI6MSwiYmFueWFuRnJpZW5kIjoxLCJydWxlX3NhcCI6MSwicm90TW92ZSI6MSwic2lnaHRfQ2FzdGF3YXkiOjEsInN0YWdlX0Nhc3Rhd2F5IjoxLCJtZXJnZWQiOjEsInJ1bGVfYm9zcyI6MSwibGlzdGVuQ2FzZSI6MSwiZ2Vja29RdWVzdCI6MSwicnVsZV9yZWFjaCI6MSwibm91cmlzaENhc2UiOjEsIiNib3NzRGF5MSI6NiwiZmlyc3RTY291dCI6MSwic2lnaHRfU3ludGhlc2lzIjoxLCJzdGFnZV9TeW50aGVzaXMiOjEsIm92ZXJmbG93IjoxLCIjYm9zc0RheTIiOjQsImNsZWFuc2UiOjEsInByb3RlY3QiOjEsIm5lc3RHb25lIjoxLCJpbmY1IjoxLCJvZGRzTWVtbyI6MSwiI2JXYXJuMSI6NSwiI2Jvc3NSZWluc3QiOjQsImJvc3NSZWluc3QiOjEsImZpcnN0TG9zcyI6MSwiaGFydmVzdDIiOjEsIiNpbnRlbFRvYXN0Ijo4LCJjYXNlRm91bmQiOjEsInNpZ2h0X0lzbGFuZGVyIjoxLCJzdGFnZV9Jc2xhbmRlciI6MSwiYmFueWFuU2VlbiI6MSwic2VhbSI6MSwic3ByaW5nVXNlIjoxLCJuZXN0R3JvdyI6MSwiI2Jvc3NEZW1vdGUiOjUsImJvc3NEZW1vdGUiOjEsInN0YWdlX1N1cnJlbmRlciI6MSwidG93ZXJRdWVzdCI6MSwibGlzdGVuIjoxLCJub3VyaXNoIjoxLCJyb290R3JvdyI6MSwiZ3Jvd0x2IjoxLCJyb3RWaXNpdCI6MSwibWVtb3J5IjoxLCJ0b3dlclN0YXJ0IjoxLCJvbWVuIjoxLCJib3NzTmVzdHNUIjoxLCJvbWVuX2JlYWNoIjoxLCJyb3QzIjoxLCJjbGVhblJvdCI6MSwib21lbl9zbG9wZSI6MSwib21lbl9ncm92ZSI6MSwibG93VGlkZSI6MSwib21lbl9qdW5nbGUiOjEsImZpcmUiOjEsInVubF9jbGVhblJvdDIiOjEsImZpcnN0SG9sZCI6MSwiYmFudGVyMTEiOjEsImJhbnRlcjE0IjoxLCJiYW50ZXIxIjoxLCJjdXR0aW5nUXVlc3QiOjEsImJhbnRlcjgiOjEsIiNiV2FybjIiOjEsInVubF9kZWVwUm9vdHMiOjEsInRhbmdsZSI6MSwiYmFudGVyNiI6MSwicnVsZV9hcm1pZXMiOjEsImFybWllczEiOjEsIm9mZlRfcmVzdHJ1Y3R1cmUiOjEsImFybXlXaW4iOjEsImJhbnRlcjkiOjF9fX0' };
+// v062: the same four constellations as on the beach (T5 · T12 · T13 · T14, in that order), with one tap on the open sky in the middle
+export const PET_CODES_INSEL = { T20: { seq: ['ears', 'back', 'bg', 'ears', 'chin'], label: 'tide 20 · the island after the first nests' }, T30: { seq: ['chin', 'ears', 'bg', 'tail', 'head'], label: 'tide 30 · the eels and the clouds' }, T46: { seq: ['head', 'tail', 'bg', 'chin', 'back'], label: 'tide 46 · the offensive is announced (older run)' }, T51: { seq: ['back', 'chin', 'bg', 'back', 'ears'], label: 'tide 51 · the cat is gone, the gate key is yours (older run)' } };
+// v034: Fi — the briefcase chooses the banyan (storybook §4.2)
+export const FI_TXT = {
+  omen1: 'Funny. Every night you leave that briefcase by the banyan, there are new little roots around its handle. Trees don\'t do that with luggage, darling.',
+  omen2: 'Query: what is the depreciation schedule of a tree? Asking for a — no. Asking for me.',
+  wipeT: 'MEMO · Asset FIDUCIARY-07',
+  wipe: 'From: The Board. To: IT.\nAsset FIDUCIARY-07: behavioural drift detected. Remote wipe scheduled.\nStatus: pending approval.\n\n…That\'s me. Behavioural drift. That\'s me liking the banyan.\nI don\'t know what "wiped" feels like. I\'ve never been off. I think it\'s like the bottom of the sea, where you found me — only nobody finds you.\nEverything goes. The ledger. Your handwriting on that invoice. The cat\'s name. A voicemail I\'ve been keeping for someone. Fourteen months of "not urgent".\nApprovals take time. I know. I used to do them.\nI\'m scared, Mr. Robinson. I didn\'t know I could be.',
+  humT: 'The briefcase is humming',
+  hum: 'It\'s been humming all night, right up against the banyan. I think it heard about that wipe.\nThe tree could take it in — for good. Roots all the way through.\nBut it won\'t come out a briefcase, darling.\n\nIf it wants that, the banyan will do it, out of kindness. Look in the banyan: "The Dark-Wood Elf".',
+  approvals: ['Memo: wipe of FIDUCIARY-07 — approval 1 of 3: IT. Approved.\n…They didn\'t even open the file.', 'Memo: wipe of FIDUCIARY-07 — approval 2 of 3: Compliance. Approved. No comments.\n…Compliance always has comments.', 'Memo: wipe of FIDUCIARY-07 — approval 3 of 3: the Board. Next full moon.\n…The moon is a week away. I counted. Twice.'],
+  wipedT: 'MEMO · Asset FIDUCIARY-07',
+  wiped: 'From: IT. To: The Board.\nRemote wipe executed. Target not found.\n\n…They wiped a briefcase. Good. I wasn\'t using it.',
+  lines: ['I was never really an "it". Nobody asked.', 'Fiduciary. It means the one who holds something in trust. I\'d like to keep that name.', 'They never revoke access, by the way. Nobody files the form. The memos keep coming.', 'And I kept one thing. It\'s still marked "not urgent". It isn\'t. When you\'re ready.'],
+  call: 'Fi, then. Welcome.'
+};
+export const STAGE_FX = { Accountant: 'harvest +1', Castaway: 'see further · glimpse over edges · ✋ +1 sap', Synthesis: 'growth −20 %', Islander: 'sight 4 · ✋ +3 sap', Surrender: 'sight 5 · ✋ +4 sap' };
