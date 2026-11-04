@@ -64,7 +64,7 @@ export const LOGBUCH = (() => {
     return tBase.map((t, i) => { let nm = String(t.name || 'a nameless tile'); if (/[.]| — |[,;]/.test(nm)) nm = 'tile ' + i; else if (n[nm] > 1) { k[nm] = (k[nm] || 0) + 1; nm += ' (' + k[nm] + ')'; } return nm; });
   }
   const DYN = ['state', 'b', 'rooted', 'rs', 'prot', 'welk', 'ableger'];
-  const T_REST = ['owner', 'sac', 'vent', 'rotBorn', 'full3', 'exh'];
+  const T_REST = ['owner', 'sac', 'vent', 'rotBorn', 'full3', 'exh', 'turm', 'trebo', 'welkSeit'];   // v063: towers, trebuchets, withered since
   function kachelSatz(lab, t) {
     const p = [VISIT[t.state | 0] || 'unseen', ROT[t.b | 0] || 'clean'];
     if (t.rooted) p.push('root ' + (t.rs | 0)); if (t.prot) p.push('guarded'); if (t.welk) p.push('withered'); if (t.source === 'nest') p.push('a nest'); if (t.ableger) p.push('an offshoot');
@@ -167,7 +167,7 @@ export const LOGBUCH = (() => {
       G.unl = {}; const lr = /The banyan has learned: ([^\n]*)/.exec(R); if (lr) { const have = lr[1].replace(/\.\s*$/, '').split(';').map(x => x.trim()); ctx.unl.forEach(u => { if (have.includes(u.name)) G.unl[u.id] = true; }); }
       G.frisch = null;
       const lab = labels(ctx.tBase), byLab = new Map(lab.map((l, i) => [l, i]));
-      const T = ctx.tBase.map(bs => ({ state: 0, b: 0, source: bs.source === 'wreck' ? 'wreck' : undefined, owner: undefined, name: bs.name, rooted: false, rs: 0, prot: false, exh: 0, ableger: false, sac: undefined, vent: undefined, rotBorn: undefined, type: bs.type, content: bs.content === undefined ? null : JSON.parse(J(bs.content)), full3: undefined, welk: false }));
+      const T = ctx.tBase.map(bs => ({ state: 0, b: 0, source: bs.source === 'wreck' ? 'wreck' : undefined, owner: undefined, name: bs.name, rooted: false, rs: 0, prot: false, exh: 0, ableger: false, sac: undefined, vent: undefined, rotBorn: undefined, type: bs.type, content: bs.content === undefined ? null : JSON.parse(J(bs.content)), full3: undefined, turm: undefined, trebo: undefined, welkSeit: undefined, welk: false }));
       const rep = R.slice(R.indexOf('What I saw of the island:'), shellAt), re = /^(.+?) — (unseen|glimpsed|walked), (clean|tinged|rotting|black)((?:, [a-z0-9 ]+)*)\.$/gm; let m;
       while ((m = re.exec(rep))) { const i = byLab.get(m[1].trim()); if (i === undefined) fehler('Unknown place in the report: ' + m[1]); const t = T[i], ex = m[4] ? m[4].split(', ').map(x => x.trim()).filter(Boolean) : [];
         t.state = VISIT.indexOf(m[2]); t.b = ROT.indexOf(m[3]);

@@ -1100,7 +1100,7 @@ export const RULES = {
   costMove: { beach: 1, grove: 1, jungle: 2, slope: 2, tangle: 2, lava: 2, water: 99 },
   nestBlight: 2, wreckBlight: 3, rootThresh1: 10, rootThresh2: 20,
   catSpeed: 62, catRadius: 30, scoutCover: .6,
-  burnRum: 3, nourishCost: 4, nourishGreen: 6, maxRot: 3, maxRoot: 3, merge: 1 / 3, cleanSap: 6, cleanMax: 4,
+  burnRum: 3, nourishCost: 4, nourishGreen: 6, maxRot: 3, maxRoot: 3, turmBau: 3, merge: 1 / 3, cleanSap: 6, cleanMax: 4,
   baseTide: 8,                                                      // the map's own tide (deep blue)
   sapYield: { banyan: 3, grove: 2, jungle: 2, beach: 1, slope: 1, tangle: 1, lava: 0 }, fruitSap: 1,
   growth: [6, 10, 15, 21, 28, 36, 45, 55], sapPerRoot: 3, towerSap: 24, towerGreen: 90, ablegerSap: 45

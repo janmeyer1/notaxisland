@@ -79,12 +79,13 @@ function addWandel(d) { G.wandel = clamp(G.wandel + d, 0, G.wandelMax || WMAX); 
 const stageIdx = () => STAGES.filter(s => G.wandel >= s[0]).length - 1;
 const sightMul = () => 1 + .25 * stageIdx();
 const isTree = id => (id === G.banyan && G.friends.banyan) || !!T[id].ableger;
-function setRooted(t, v, rs) { if (t.rooted === v) return; t.rooted = v; t.rs = v ? (rs || Math.max(1, Math.min(2, capOf(treeDist()[t.id]) || 1))) : 0; if (v) { t.rootBorn = G.now; t.welk = false; } G.stateDirty = true; }   // v061: new roots start at strength 2 (within reach)
+function setRooted(t, v, rs) { if (t.rooted === v) return; t.rooted = v; t.rs = v ? (rs || 1) : 0; if (v) { t.rootBorn = G.now; t.welk = false; delete t.welkSeit; } G.stateDirty = true; }   // v063: new roots start at strength 1 again (Jan: the hard variant)
 // v061: a root that drops to 0 withers instead of vanishing — it regrows by itself once its tile is clean again (with a rooted neighbour)
-function welken(t, x, y) { setRooted(t, false); t.welk = true; rootFx(t.id, 1, 0); if (t.state > 0) addFloat(x, y - 16, 'the root withers', '#ffb0a0'); say1('welk', 'tortoise', 'That root withered — it is not dead. Clean the tile and it grows back on its own, as long as a rooted tile is next door.'); }
+function welken(t, x, y) { setRooted(t, false); t.welk = true; t.welkSeit = G.tide;   // v063: withered for at least one whole flood — the trebuchets get their chance
+  rootFx(t.id, 1, 0); if (t.state > 0) addFloat(x, y - 16, 'the root withers', '#ffb0a0'); say1('welk', 'tortoise', 'That root withered — it is not dead. Clean the tile and it grows back on its own, as long as a rooted tile is next door.'); }
 function rootFx(id, from, to) { (G.rootFx = G.rootFx || []).push({ id, from, to, t0: G.now }); }   // the strand snaps on the map
 function welkNachwachsen() {
-  let n = 0; T.forEach(t => { if (!t.welk || t.rooted || t.b > 0 || t.reg === 5 || t.source) return; if (![...t.nb].some(m => T[m].rooted) || rootCap(t.id) === 0) return;
+  let n = 0; T.forEach(t => { if (!t.welk || t.rooted || t.b > 0 || t.reg === 5 || t.source || !(t.welkSeit === undefined || t.welkSeit < G.tide)) return; if (![...t.nb].some(m => T[m].rooted) || rootCap(t.id) === 0) return;
     setRooted(t, true, 1); n++; if (t.state > 0) addFloat(...tileXY(t.id), '🌱 the root regrows', '#c8ffb0'); });
   return n;
 }
@@ -202,6 +203,16 @@ function nestPower(net, n) {   // power = tiles in its own share + 1/3 of every 
   if (G.board.tr < 50) p = Math.max(0, p - 1);
   return p;
 }
+// v063: steep flanks (Fire Mountain's slopes) carry no war machines
+function nachschub() { return tutFertig() ? Math.max(0, Math.floor((G.tide - 10) / 10)) : 0; }   // v063: at tide 20, 30, 40 … the Board lands supplies — one more spearhead per network
+function steil(t) { return t.type === 'slope'; }
+function treboOk(n) { const x = T[n]; return x && x.b < RULES.maxRot && !x.source && x.reg !== 5 && x.id !== G.cave && !rotSchlaeft(n); }
+function istFront(t) { return [...t.nb].some(treboOk); }
+function treboReich(t) { return t.turm !== undefined ? 2 : 1; }
+function treboFeuert(t) { const k = G.tide - t.trebo; return k >= 1 && k % 2 === 1; }   // built (or the tower finished) → loads one flood, fires the next, and so on
+function treboImRing(t) { const out = new Set(), r = treboReich(t); let fr = [t.id]; const seen = new Set(fr);
+  for (let k = 0; k < r; k++) { const nx = []; fr.forEach(i => T[i].nb.forEach(n => { if (seen.has(n) || T[n].reg === 5) return; seen.add(n); nx.push(n); if (treboOk(n)) out.add(n); })); fr = nx; } return [...out]; }
+function treboWahl(t, d) { let best = -1; treboImRing(t).forEach(n => { if (G.targets.includes(n)) return; if (best < 0 || d[n] < d[best]) best = n; }); return best; }
 function planFlood(keepOmen) {
   tutNetz();
   const d = distToStart();
@@ -218,7 +229,7 @@ function planFlood(keepOmen) {
   const dF = frontDist();
   if (G.omen) {
     const { comp, nets } = networks();
-    const per = 1 + (offActive() ? 1 : 0);   // v022: an offensive's three tides only strengthen the automatic rot
+    const per = 1 + (offActive() ? 1 : 0) + nachschub();   // v022: an offensive's three tides only strengthen the automatic rot · v063: +1 for every Board supply drop (every 10 tides)
     nets.forEach((net, ci) => {   // spearheads per network: the closest matching tiles (shaken regime: sometimes a random one)
       for (let k = 0; k < per; k++) {
         const sc = t => .6 * d[t.id] + .4 * dF[t.id];   // v016: 0.6 × steps to the banyan + 0.4 × steps to the nearest tree or root
@@ -231,18 +242,18 @@ function planFlood(keepOmen) {
     G.targets.sort((a, b) => d[a] - d[b]);
   }
   G.targets.forEach(id => G.tinfo[id] = { from: attackFrom(T[id]), overflow: false });
-  // v040 overflow → v061 the trebuchet: a rot-3 tile fires at its own root while one holds the tile; once the root is gone, the next flood it fires at the neighbour nearest the banyan — at most 2 per network
-  T.forEach(t => { if (t.b >= RULES.maxRot && !t.source && !t.rooted) { if (t.full3 === undefined) t.full3 = G.tide; } else delete t.full3; });
-  const { nets: onets } = networks();
-  if (!(G.board.tr < 75 && G.tide % 2)) onets.forEach(net => {   // a strained treasury only pays for overflow every 2nd flood
-    const spill = [];
-    net.ids.forEach(id => {
-      const t = T[id]; if (t.b < RULES.maxRot || t.source || !(t.full3 < G.tide) || rotSchlaeft(id)) return;
-      let best = null; [...t.nb].forEach(x => { if (T[x].b < RULES.maxRot && !rotSchlaeft(x) && !T[x].source && T[x].reg !== 5 && x !== G.cave && !G.targets.includes(x) && !spill.some(s => s.to === x) && (!best || d[x] < d[best.to])) best = { to: x, from: id }; });
-      if (best) spill.push(best);
-    });
-    spill.sort((a, b) => d[a.to] - d[b.to]).slice(0, 2).forEach(b => { G.targets.push(b.to); G.tinfo[b.to] = { from: b.from, overflow: true }; });
-  });
+  // v063: the rot's war machines. Rot 3 (no source, no root, not on the steep flanks of Fire Mountain) builds:
+  //  · at the FRONT (a neighbour still below 3): a trebuchet — it loads one flood, fires the next (all of them, no cap), range 1;
+  //  · BEHIND the front (all neighbours rot 3): a wide tower in 3 floods, then a trebuchet on top — load / fire, range 2.
+  T.forEach(t => { if (t.b >= RULES.maxRot && !t.source && !t.rooted && t.reg !== 5 && !steil(t)) { if (t.full3 === undefined) t.full3 = G.tide; } else { delete t.full3; delete t.turm; delete t.trebo; } });
+  T.forEach(t => { if (t.full3 === undefined) return; const front = istFront(t);
+    if (!front && t.turm === undefined && t.trebo === undefined) t.turm = G.tide;   // behind the front: start a tower
+    if (t.turm !== undefined && t.trebo === undefined && G.tide - t.turm >= RULES.turmBau) t.trebo = G.tide;   // the tower stands: a trebuchet goes up on it
+    if (front && t.turm === undefined && t.trebo === undefined && t.full3 < G.tide) t.trebo = t.full3; });
+  if (!(G.board.tr < 75 && G.tide % 2)) {   // a strained treasury only pays for the shots every 2nd flood
+    const shooters = T.filter(t => t.trebo !== undefined && treboFeuert(t) && !rotSchlaeft(t.id)).sort((a, b) => d[a.id] - d[b.id]);
+    shooters.forEach(t => { const z = treboWahl(t, d); if (z >= 0) { G.targets.push(z); G.tinfo[z] = { from: t.id, overflow: true }; } });
+  }
   mergeWatch(); banyanWatch(); VC.t = -1;
   if (G.targets.some(id => T[id].state > 0)) { unlockRule('rot'); unlockRule('omen'); }
   G.stateDirty = true; updateHUD();
@@ -327,7 +338,7 @@ async function treeBurn(id) {
 }
 // v014: rot 3 eats the root on its tile — one step per flood (after the sap has flowed, so pumping sap in buys time)
 function rotEatsRoots() {
-  T.forEach(t => { if (!t.rooted || t.b < 3) return; if (G.banyans.includes(t.id) && t.rs <= 1) return;   // v024: trees keep root 1
+  T.forEach(t => { if (!t.rooted || t.b < 3 || steil(t)) return; if (G.banyans.includes(t.id) && t.rs <= 1) return;   // v024: trees keep root 1
     t.rs--; const [x, y] = tileXY(t.id);
     rootFx(t.id, t.rs + 1, t.rs); if (t.rs <= 0) welken(t, x, y); else if (t.state > 0) addFloat(x, y - 16, 'the trebuchet hits its own root · −1', '#ffb0a0');
     say1('rotEats', 'tortoise', 'Rot 3 builds a trebuchet. While a root holds the tile it fires at that root — one step every flood. Once the root is gone it fires at the next tile. Cleanse it below three.'); G.stateDirty = true; });
@@ -852,8 +863,8 @@ $('bReport').onclick = () => { $('repBadge').style.display = 'none'; if (G.repor
 // RSAVE (the shared save format) and the load dialog live in spiel.js since the merger
 
 // ---- map side of RSAVE ----
-const G_SKIP = new Set(['floats', 'cat', 'catQ', 'group', 'talk', 'drama', 'combat', 'sapFx', 'catWalk', 'bloom', 'ping', 'flash', 'outLog', 'seaPos', 'tortPos', 'mouthXY', 'stateDirty', 'fogDirty', 'knownDirty', 'now', 'report', 'tinfo', 'targets', 'simRow', 'nph', 'tph', 'sph', 'surge', 'seaVis', 'sel', 'geckoTag', 'shakeT']);
-const T_KEYS = ['state', 'b', 'source', 'owner', 'name', 'rooted', 'rs', 'prot', 'exh', 'ableger', 'sac', 'vent', 'rotBorn', 'type', 'content', 'full3', 'welk'];
+const G_SKIP = new Set(['floats', 'cat', 'catQ', 'group', 'talk', 'drama', 'combat', 'sapFx', 'catWalk', 'bloom', 'ping', 'flash', 'outLog', 'seaPos', 'tortPos', 'mouthXY', 'stateDirty', 'fogDirty', 'knownDirty', 'now', 'report', 'tinfo', 'targets', 'simRow', 'nph', 'tph', 'sph', 'surge', 'seaVis', 'sel', 'geckoTag', 'shakeT', 'landung']);
+const T_KEYS = ['state', 'b', 'source', 'owner', 'name', 'rooted', 'rs', 'prot', 'exh', 'ableger', 'sac', 'vent', 'rotBorn', 'type', 'content', 'full3', 'turm', 'trebo', 'welkSeit', 'welk'];
 function mapState(kind) {   // kind 'end' = after a flood (loading starts the next ebb) · 'ebb' = right now, mid-ebb
   const g = {}; Object.keys(G).forEach(k => { if (!G_SKIP.has(k) && typeof G[k] !== 'function') g[k] = G[k]; });
   return { v: RSAVE.V, module: 'map', kind: kind || 'end', tide: kind === 'ebb' ? G.tide : G.tide + 1, m: { G: JSON.parse(JSON.stringify(g)), T: T.map(t => { const o = {}; T_KEYS.forEach(k => { if (t[k] !== undefined) o[k] = t[k]; }); return o; }), seen: Object.assign({}, storySeen) } };
@@ -869,7 +880,7 @@ function mapLoad(st) {
   ['card', 'prio', 'fight', 'call', 'drama', 'endScr', 'ledgerScr', 'rulesScr', 'treeScr', 'pet'].forEach(k => { const e = $(k); if (e) e.style.display = 'none'; });
   PRIO.open = null; PRIO.q = []; TQ.length = 0;
   G.fi = false; G.fiLook = 0; delete G.fiWipe; delete G.fiAt; delete G.lastBurn; G.frisch = null; G.wachAb = null; G.wachRang = null; Object.keys(M.G).forEach(k => { G[k] = M.G[k]; });   // v059: no snapshot from another game
-  Object.assign(G, { floats: [], cat: null, catQ: [], talk: {}, drama: null, combat: null, sapFx: null, catWalk: null, bloom: 0, ping: null, flash: -1, tinfo: {}, targets: [], seaPos: null, tortPos: null, sel: -1, over: false, started: true });
+  Object.assign(G, { floats: [], cat: null, catQ: [], talk: {}, drama: null, landung: null, combat: null, sapFx: null, catWalk: null, bloom: 0, ping: null, flash: -1, tinfo: {}, targets: [], seaPos: null, tortPos: null, sel: -1, over: false, started: true });
   T.forEach((t, i) => { const o = M.T[i] || {}; T_KEYS.forEach(k => { if (k in o) t[k] = o[k]; else if (k === 'ableger' || k === 'prot' || k === 'rooted' || k === 'welk') t[k] = false; else if (k === 'full3') delete t.full3; }); });
   Object.keys(storySeen).forEach(k => delete storySeen[k]); Object.assign(storySeen, M.seen || {}); fiLabels();
   FOG.scout.x.setTransform(1, 0, 0, 1, 0, 0); FOG.scout.x.clearRect(0, 0, FOG.scout.c.width, FOG.scout.c.height);   // fog starts clean, then what was known is revealed
@@ -1206,6 +1217,7 @@ async function endEbb() {
       if ((t.ableger || id === G.banyan) && t.b >= 3) await treeBurn(id);
     } else {
       held++; G.es.held = (G.es.held || 0) + 1; addFloat(x, y, 'rot ' + a + ' vs ' + d + ' · held', '#c8ffb0');
+      if (id === G.at && !G.below) { addWandel(1); addFloat(x, y - 18, '+1 Wandel · you held it', '#ffe08a'); }   // v063: standing your ground pays
       if (d >= a + pushNeed()) { erode('be', 1); const src = [...t.nb].filter(n => T[n].b > 0 && !T[n].source).sort((p, q) => T[q].b - T[p].b)[0]; if (src !== undefined) { T[src].b--; addFloat(...tileXY(src), 'pushed back', '#c8ffb0'); } }
     }
     G.stateDirty = true; await sleep(900);
@@ -1248,6 +1260,7 @@ function nextEbb() {
     if (G.collapses > 1) setTimeout(() => toast('You wake up · this ebb is lost' + (G.inf >= 7 ? ' · Befall ' + G.inf + ': stand on clean, protected tiles to shake it off' : '')), 300); else setTimeout(() => showCard('You wake up', 'Under the banyan, covered in leaves. ' + (G.catFate === 'gone' ? 'The gecko sits on your shoe, very pleased with itself. It dragged you back. Somehow.' : 'The cat is asleep on your chest; the gecko sits on your shoe, very pleased with itself. They dragged you back.') + '<br><br><b>This ebb is lost</b> — you can barely stand.'), 300); }
   boardTick(); G.talkEbb = 0; talkRelease(); setTimeout(kursPing, 1600);   // v058
   planFlood(); rettungPruefen(); banner('Low tide · Tide ' + G.tide); applyBeach(); camHome();   // v061: his dens appear when the tutorial ends
+  if (tutFertig() && G.tide >= 20 && G.tide % 10 === 0 && G.nachLand !== G.tide) { G.nachLand = G.tide; setTimeout(nachschubSzene, 1400); }   // v063: the Board's supply drop
   if (!G.caseFound && G.tide >= CASE_AT && G.scen !== 'real') caseFound();   // v030: with the real beach the briefcase is a beach find
   if (G.finale === 2 && G.tide >= (G.catAt || 0)) setTimeout(catLeaves, 700);
   { const can = G.friends.banyan && !G.treeSeen && (G.unl.listen || G.wFree >= 2); if (!can) G.treeCanSince = -1; else if (G.treeCanSince < 0 || G.treeCanSince === undefined) G.treeCanSince = G.tide;
@@ -1539,6 +1552,31 @@ async function lastArmyDrama(a, by) {
   await sleep(3600);
   el.style.display = 'none'; G.drama = null;
   say('tortoise', by === 'you' ? 'That was you. Don\'t let it go to your head — it\'s already in mine.' : 'It doesn\'t like being leaned on. Neither do I.');
+}
+// v063: every 10 tides the Board lands supplies for the rot — a barge past the wreck, crates on the sand, and one more spearhead per network
+function landeZiel() { const w = G.wreck >= 0 ? G.wreck : T.find(t => t.reg === 5).id; const land = [...T[w].nb].filter(n => T[n].reg !== 5); return land.sort((a, b) => T[b].b - T[a].b)[0] ?? G.start; }
+async function nachschubSzene() {
+  const z = landeZiel(), [ex, ey] = tileXY(z), [wx, wy] = G.wreck >= 0 ? tileXY(G.wreck) : [ex, ey + 80], dx = wx - CW / 2, dy = wy - CH / 2, L = Math.hypot(dx, dy) || 1;
+  G.landung = { t0: G.now, sx: wx + dx / L * 260, sy: wy + dy / L * 160, ex: wx + (ex - wx) * .55, ey: wy + (ey - wy) * .55, lx: ex, ly: ey, crates: [] };
+  camGo({ x: (wx + ex) / 2, y: (wy + ey) / 2, z: Math.max(CAM.z, CAM.zMax * .7) }, .8); sfxDrum();
+  await sleep(5200);
+  const per = 1 + nachschub();
+  await showCardWait('Supplies for the rot', 'A grey barge with the Board\'s flag noses in past the wreck. Crates hit the sand; something green crawls out of them and up into the island.<br><br><b>From now on every rot network sends ' + per + ' spearheads each flood</b> (Bad Omen). The rot is learning this island — every ten tides it gets a little better at it.', 'Noted');
+  G.landung = null; camHome();
+}
+function drawLandung(c, t) {
+  const L = G.landung; if (!L) return; const e = G.now - L.t0, p = clamp(e / 3.2, 0, 1), q = p * p * (3 - 2 * p), x = L.sx + (L.ex - L.sx) * q, y = L.sy + (L.ey - L.sy) * q + Math.sin(e * 2) * 1.5;
+  c.save(); c.translate(x, y);   // the barge: grey hull, a little wheelhouse, the Board's flag
+  c.fillStyle = 'rgba(0,0,0,.25)'; c.beginPath(); c.ellipse(0, 6, 34, 6, 0, 0, 7); c.fill();
+  c.fillStyle = '#4a5258'; c.beginPath(); c.moveTo(-32, -2); c.lineTo(30, -2); c.lineTo(24, 7); c.lineTo(-28, 7); c.closePath(); c.fill();
+  c.fillStyle = '#2e3438'; c.fillRect(-26, -10, 12, 8); c.fillStyle = '#6b4a2a'; for (let k = 0; k < 4; k++) if (e < 3.4 + k * .35) c.fillRect(-8 + k * 9, -9, 8, 7);
+  c.strokeStyle = '#222'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(-20, -10); c.lineTo(-20, -24); c.stroke(); c.fillStyle = '#b0351c'; c.fillRect(-20, -24, 11, 6); c.fillStyle = '#fff'; c.font = "700 5px 'Fredoka',system-ui"; c.fillText('BOARD', -19, -19.5);
+  c.restore();
+  if (e > 3.3) for (let k = 0; k < 4; k++) { const ek = e - 3.4 - k * .35; if (ek < 0) continue; const f = clamp(ek / .6, 0, 1), cx = L.ex + (L.lx - L.ex) * (.3 + f * .6) + (k - 1.5) * 8, cy = L.ey + (L.ly - L.ey) * (.3 + f * .6) - Math.sin(f * Math.PI) * 18;
+    c.fillStyle = '#6b4a2a'; c.fillRect(cx - 4, cy - 4, 8, 7); if (f >= 1) { c.fillStyle = 'rgba(120,255,80,' + (.5 + .4 * Math.sin(t * 6 + k)) + ')'; c.beginPath(); c.arc(cx, cy - 6, 3, 0, 7); c.fill();
+      for (let m = 0; m < 3; m++) { const cr = (ek - .6) * 14 + m * 5; rotMann(c, cx + Math.cos(k + m) * cr * .6, cy + 4 - cr * .5, t, k * 3 + m, null); } } }
+  c.fillStyle = '#fff'; c.font = "700 16px 'Fredoka',system-ui"; c.textAlign = 'center'; c.globalAlpha = clamp(e - .3, 0, 1) * clamp((5.2 - e) * 2, 0, 1);
+  c.fillText('The Board lands supplies', (L.sx + L.lx) / 2, Math.min(L.sy, L.ly) - 40); c.globalAlpha = 1;
 }
 function drawDrama(c, t, dt) {
   const D = G.drama; if (!D) return; const e = G.now - D.t0, h = D.hit ? G.now - D.hit : -1;
@@ -2083,7 +2121,7 @@ function prioPin(m) { const ln = say(m.who, '📌 ' + m.title + ' — tap to rea
 function prioPruefen() {
   PRIO.q = PRIO.q.filter(m => { if (m.valid && !m.valid()) return false; if (!m.urgent && !m.keep && G.tide - m.t0 >= 2) { prioPin(m); return false; } return true; });
 }
-function prioCanShow() { return G.started && !SPIEL.flutLaeuft && !PRIO.open && !G.drama && $('call').style.display !== 'flex' && $('endScr').style.display !== 'flex' && $('ledgerScr').style.display !== 'flex' && PRIO.q.length && $('card').style.display !== 'flex' && $('treeScr').style.display !== 'flex' && $('rulesScr').style.display !== 'flex' && G.phase === 'ebb' && !G.over; }
+function prioCanShow() { return G.started && !SPIEL.flutLaeuft && !PRIO.open && !G.drama && !G.landung && $('call').style.display !== 'flex' && $('endScr').style.display !== 'flex' && $('ledgerScr').style.display !== 'flex' && PRIO.q.length && $('card').style.display !== 'flex' && $('treeScr').style.display !== 'flex' && $('rulesScr').style.display !== 'flex' && G.phase === 'ebb' && !G.over; }
 // v061 (C5): one priority window per ebb — exceptions: banyan danger, the tutorial, and what the player just triggered; the rest waits
 function prioBudget() {
   if (PRIO.q[0].urgent || (G.prioShown || 0) < 1) return true;
@@ -2978,6 +3016,7 @@ function drawOver(t, dt) {
     if (tt.state === 0) return;   // strikes under the clouds stay hidden
     dots(c, tt, G.flash === id ? 'rgba(255,90,60,.95)' : 'rgba(120,255,90,' + pulse * .8 + ')', G.flash === id ? 3 : 2.2);
     if (inf.overflow) {   // v061: no tendril — the trebuchet on the source tile points here
+      { const [fx, fy] = tileXY(inf.from); c.save(); c.setLineDash([4, 4]); c.lineDashOffset = -t * 12; c.strokeStyle = 'rgba(255,154,58,.75)'; c.lineWidth = 2; c.beginPath(); c.moveTo(fx + 6, fy - 16); c.quadraticCurveTo((fx + x) / 2, Math.min(fy, y) - 46, x, y - 8); c.stroke(); c.restore(); }   // v063: the flight path, so every shot shows where it comes from
       const txt = '💥 trebuchet · ' + (tt.rooted && !(G.banyans.includes(id) && tt.rs <= 1) ? 'root −1' : '+1 rot'); c.font = "600 15px 'Fredoka',system-ui"; c.textAlign = 'center'; const w = c.measureText(txt).width + 14;
       c.fillStyle = 'rgba(8,12,8,.92)'; roundRect(c, x - w / 2, y - 28, w, 20, 10); c.fill(); c.strokeStyle = '#ff9a3a'; c.lineWidth = 2; c.stroke(); c.fillStyle = '#ffc07a'; c.fillText(txt, x, y - 13); return; }
     if (inf.from >= 0) {
@@ -3030,6 +3069,7 @@ function drawOver(t, dt) {
   drawBurn(c, t);
   if (G.sapFx && G.now - G.sapFx.t0 < 1.8) { const [bx, by] = tileXY(G.banyan), e = (G.now - G.sapFx.t0) / 1.8; G.sapFx.src.forEach((id, i) => { const [sx, sy] = tileXY(id); for (let k = 0; k < 3; k++) { const u = clamp(e * 1.4 - k * .15 - i * .03, 0, 1); if (u <= 0 || u >= 1) continue; const px = lerp(sx, bx, u), py = lerp(sy, by - 20, u) - Math.sin(u * Math.PI) * 14; const g = c.createRadialGradient(px, py, 0, px, py, 7); g.addColorStop(0, 'rgba(200,255,140,.95)'); g.addColorStop(1, 'rgba(200,255,140,0)'); c.fillStyle = g; c.fillRect(px - 7, py - 7, 14, 14); } }); }
   drawDrama(c, t, dt);
+  drawLandung(c, t);
   drawCatWalk(c, t);
   if (G.bloom && G.now - G.bloom < 9) { const [bx, by] = tileXY(G.banyan), q = (G.now - G.bloom) / 9; for (let k = 0; k < 3; k++) { const u = (q * 3 + k / 3) % 1, R = 30 + u * 420; c.strokeStyle = 'rgba(190,255,140,' + (1 - u) * (1 - q) * .8 + ')'; c.lineWidth = 5; c.beginPath(); c.ellipse(bx, by, R, R * .55, 0, 0, Math.PI * 2); c.stroke(); }
     for (let i = 0; i < 28; i++) { const a = i * 2.4 + G.now * .3, r = 30 + (i * 37) % 120, fx = bx + Math.cos(a) * r, fy = by - 30 + Math.sin(a * 1.3) * r * .4, al = (.5 + .5 * Math.sin(G.now * 3 + i)) * (1 - q); c.fillStyle = 'rgba(230,255,150,' + al + ')'; c.beginPath(); c.arc(fx, fy, 2.2, 0, Math.PI * 2); c.fill(); } }
@@ -3058,7 +3098,7 @@ function drawOver(t, dt) {
 // ---------- v061: the rot's building site — one stage per rot level, 2–3 variants each ----------
 function treboZiel(id) {   // where this tile's trebuchet points: its planned shot, else its own root, else the neighbour nearest the banyan
   const plan = Object.keys(G.tinfo).find(k => G.tinfo[k].overflow && G.tinfo[k].from === id); if (plan !== undefined) return +plan;
-  if (T[id].rooted) return id; const d = distToStart(); let best = -1; T[id].nb.forEach(n => { if (T[n].reg !== 5 && !T[n].source && T[n].b < 3 && (best < 0 || d[n] < d[best])) best = n; }); return best;
+  if (T[id].rooted) return id; const d = distToStart(); let best = -1; treboImRing(T[id]).forEach(n => { if (best < 0 || d[n] < d[best]) best = n; }); return best;
 }
 function rotMann(c, x, y, t, ph, carry) {   // a little black figure with green eyes
   const bob = Math.abs(Math.sin(t * 6 + ph)) * 1.4; c.fillStyle = '#121812'; c.strokeStyle = '#121812'; c.lineWidth = 1.6;
@@ -3080,13 +3120,24 @@ function drawRotBau(c, tt, t) {
   const hx = v === 2 ? x - 16 : x + 18; c.fillStyle = '#2b2219'; c.fillRect(hx, y - 7, 9, 7); c.fillStyle = '#4a7a2a'; c.beginPath(); c.moveTo(hx - 1, y - 7); c.lineTo(hx + 4.5, y - 12); c.lineTo(hx + 10, y - 7); c.fill();
   if (v === 1) { c.fillStyle = '#2b2219'; c.fillRect(hx + 11, y - 5, 6, 5); }
   if (lv === 2) { const sw = Math.sin(t * 1.1 + tt.id) * 5; rotMann(c, x + 4 + sw, y + 5, t, tt.id, 'plank'); rotMann(c, hx + 4, y + 3, t, tt.id + 3, null); c.restore(); return; }
-  // rot 3: the trebuchet, loaded, aimed at its next target
+  // rot 3 on the steep flanks: nothing can be built up there — the sheds stay
+  if (steil(tt)) { const sw = Math.sin(t * 1.1 + tt.id) * 4; rotMann(c, x + 4 + sw, y + 5, t, tt.id, null); c.restore(); return; }
+  // v063: behind the front a wide tower goes up (3 floods); the trebuchet sits on top of it once it stands
+  let lift = 0;
+  if (tt.turm !== undefined && !tt.rooted) { const p = clamp((G.tide - tt.turm) / RULES.turmBau, 0, 1), th = 6 + 16 * p; lift = th;
+    c.fillStyle = '#2a2a24'; c.fillRect(x - 4, y - th, 22, th); c.fillStyle = '#3c3c33'; for (let k = 0; k < th - 3; k += 4) c.fillRect(x - 4 + ((k / 4) % 2) * 5, y - th + k, 10, 2);
+    c.fillStyle = '#1c1c18'; [0, 7, 14].forEach(k => c.fillRect(x - 4 + k, y - th - 3, 4, 3));
+    if (p < 1) { c.strokeStyle = '#6a5a3a'; c.lineWidth = 1; c.beginPath(); c.moveTo(x + 20, y); c.lineTo(x + 20, y - th - 6); c.moveTo(x + 24, y); c.lineTo(x + 24, y - th - 6); c.stroke(); rotMann(c, x + 22, y - th * .5, t, tt.id, 'plank');
+      c.fillStyle = 'rgba(255,200,120,.95)'; c.font = "600 8px 'Fredoka',system-ui"; c.textAlign = 'center'; c.fillText('tower ' + Math.round(p * RULES.turmBau) + '/' + RULES.turmBau, x + 7, y + 13); c.restore(); return; } }
+  // rot 3: the trebuchet — loading or ready, aimed at its next target
   const z = treboZiel(tt.id), self = z === tt.id; let dir = 1; if (z >= 0 && !self) { const [zx] = tileXY(z); dir = zx < x0 ? -1 : 1; }
   const firing = G.shot && G.shot.from === tt.id ? clamp((G.now - G.shot.t0) / .35, 0, 1) : 0, sc = .9 + v * .12;
-  c.translate(x + 6, y - 2); c.scale(dir * sc, sc);
+  const laedt = !self && tt.trebo !== undefined && !treboFeuert(tt) && G.phase === 'ebb' && !G.tinfo[z];
+  if (!self && tt.state > 0) { c.fillStyle = laedt ? 'rgba(200,190,160,.95)' : 'rgba(255,120,60,.95)'; c.font = "600 8px 'Fredoka',system-ui"; c.textAlign = 'center'; c.fillText(laedt ? 'loading' : (treboReich(tt) > 1 ? 'range 2' : ''), x + 6, y + 13); }
+  c.translate(x + 6, y - 2 - lift); c.scale(dir * sc, sc);
   c.strokeStyle = '#3b2814'; c.lineWidth = 2.2; c.beginPath(); c.moveTo(-9, 4); c.lineTo(0, -14); c.lineTo(9, 4); c.moveTo(-11, 4); c.lineTo(11, 4); c.stroke();
   if (!self) { c.fillStyle = 'rgba(255,120,60,' + (.65 + .3 * Math.sin(t * 4)) + ')'; c.beginPath(); c.moveTo(13, 0); c.lineTo(19, 3); c.lineTo(13, 6); c.closePath(); c.fill(); }   // v062: a small arrow toward its target
-  const ang = self ? .9 + Math.sin(t * 2) * .05 : (2.64 + Math.sin(t * 1.5 + tt.id) * .05) + firing * 3.04;   // v062: loaded = sling end low behind, counterweight high toward the target; it fires over the top toward the target
+  const ang = self ? .9 + Math.sin(t * 2) * .05 : laedt ? 2.95 + Math.sin(t * 3 + tt.id) * .12 : (2.64 + Math.sin(t * 1.5 + tt.id) * .05) + firing * 3.04;   // loading: the crew winds the arm down   // v062: loaded = sling end low behind, counterweight high toward the target; it fires over the top toward the target
   c.save(); c.translate(0, -14); c.rotate(ang); c.strokeStyle = '#5a3a1c'; c.lineWidth = 2; c.beginPath(); c.moveTo(-8, 0); c.lineTo(16, 0); c.stroke();
   c.fillStyle = '#2b2b26'; c.fillRect(-12, -3, 6, 7);   // counterweight
   if (firing < .6) { const g = c.createRadialGradient(17, 0, 0, 18, 0, 4); g.addColorStop(0, '#9dff5a'); g.addColorStop(1, '#0e1a0a'); c.fillStyle = g; c.beginPath(); c.arc(18, 0, 3.4, 0, 7); c.fill(); }
