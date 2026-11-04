@@ -512,7 +512,7 @@ let raf = 0, last = 0, ready = false;
 function render() {
   P = pal(); if (!layout()) { ready = false; return; } ready = true;
   paintBackground(); palms(); hammock(); if (endMode) friends(); title(); L.bgd = bg.getImageData(0, 0, W, H).data;
-  { const st = $('overlay'), k = st.clientWidth / W, oc = $('ovCat'); if (oc) { oc.style.left = Math.round(W * .3 * k - 28) + 'px'; oc.style.top = (st.clientHeight - 44) + 'px'; } }
+  { const st = $('overlay'), k = st.clientWidth / W, oc = $('ovCat'); if (oc) { const ew = Math.max(56, Math.round(26 * U * k)), eh = Math.max(44, Math.round(16 * U * k)); oc.style.width = ew + 'px'; oc.style.height = eh + 'px'; oc.style.left = Math.round(W * .3 * k - ew / 2) + 'px'; oc.style.top = (st.clientHeight - eh) + 'px'; } }   // v064: the touch area covers both ear tips at any scale (it was a fixed 56 px, between the ears on big screens)
   if (!endMode) $('tlTeaser').textContent = TEASERS[S.teaser];
   frame(performance.now(), true);
 }

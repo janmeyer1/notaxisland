@@ -838,7 +838,7 @@ function goldChance() { const ref = wonRef(); if (ref === null) return 0; const 
   return clamp(.72 + .03 * (power - 2 * S.flood) - .12 * gap + .15 * (st - .5), .1, .95); }
 function sweep() {
   const w = S.wins[wonRef()], p = goldChance(), win = Math.random() < p, k = (win ? 0.7 : 0.3) / w.n, rnd = x => Math.floor(x + Math.random());
-  const r = { win, swept: true, chance: p, t: 0, kills: Math.round(w.kills * k), total: Math.round(w.kills * (0.7 / w.n)), gain: { green: Math.round(w.green * k), tails: rnd(w.tails * k), rum: rnd(w.rum * k) }, stam: win ? S.stamina : 0, seen: {} };
+  const r = { win, swept: true, chance: p, t: 0, kills: Math.round(w.kills * k), total: Math.round(w.kills * (0.7 / w.n)), gain: { green: Math.round(w.green * k), tails: rnd(w.tails * k), rum: rnd(w.rum * k) }, stam: win ? S.stamina : lossStamina(), seen: {} };
   S.autoLetzt = { stage: S.flood, win, p: Math.round(p * 100), green: r.gain.green };
   SPIEL.hinweis('🗼 The tower rode stage ' + S.flood + ' (' + Math.round(p * 100) + ' %): ' + (win ? 'won · +' + r.gain.green + ' 💚' : 'washed off · +' + r.gain.green + ' 💚, half stamina'));
   S.screen = 'combat'; S.kampf = true; S.combats++;

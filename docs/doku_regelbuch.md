@@ -275,6 +275,11 @@ Living design memory for the "Robinson" incremental game. Supersedes the older C
 - **Prio typing** 1.5× faster. **Next-root icon** = root knot "+1" ("root +1").
 - Panel: 50 % odds read "⚖ Coin flip" instead of "Likely holds"; banyan rot line says "burns rings" above level 1.
 - **Cat shortcut "tide 20"** = Jan's save after clearing Region I (RSAVE state embedded).
+### v064 — ears and a softer tower loss (2026-11-04)
+- Title screen: the invisible touch area for the cat's ears now scales with the screen (at least 56×44 px, otherwise 26×16 art units) and covers both ear tips. Before, it was a fixed 56 px and sat between the ears on large screens.
+- Tower ride (auto flood) lost: the result now carries half stamina straight away (`lossStamina()`), the same as a lost manual flood. Before, it showed 0 for a moment until the button reset it to half.
+- Pages: `index.html` in the repo root forwards to the newest build in `builds/`; `.nojekyll` switches off GitHub's Jekyll processing.
+
 ### v063 — the rot's war machines, supply drops, the radio talks back (2026-11-04)
 - **Sources recovered** from `robinson_v062.html` (byte-identical rebuild) and moved to GitHub: `janmeyer1/notaxisland` (private). Docs live in `docs/` in the repo and as copies in the project.
 - **Roots start at strength 1** again. A withered root stays withered for at least **one whole flood** (`t.welkSeit`); only then it regrows on a clean tile next to a rooted one — so a trebuchet can hit the bare tile in between (+1 rot).
