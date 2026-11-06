@@ -130,9 +130,9 @@ function buildLevel(st, rng, fl) {
     default: {   // 11+: like 10 without the boss — longer, faster, more
       const k = n - 10; msg(n === 15 ? ['NEW: BLACK EELS', 'They come up from below and swim faster than the water.', 'Stamp them a few times — or let the cat have them (Eel Catcher).'] : n === 20 ? ['NEW: POISON CLOUDS', 'A black cloud stops over you and rains poison where you ride.', 'When it flashes A!, tap A: climb back and leap out of the rain.'] : n === 21 ? ['POISON CLOUDS', 'It rains on the stretch where you ride. Tap A when it flashes A!', 'Tap much too early and you come down in the rain again.'] : ['Stage ' + n, 'Longer, faster, more of everything.', '']); calm(500);   // v061: a new monster every 5 stages
       const goal = stageTime(n) * st.v * 1.35;   // v055: phrases until the stage is as long as its time (it ran ~60 s instead of ~90)
-      let brl = false;   // v064: one barrel per stage from stage 25, in the second half
+      let brl = false;   // v064: one barrel per stage, in the second half (v066: from stage 27 — the first ride after Jan's T40)
       for (let i = 0; i < 40 && (i < 3 || w < goal - 900); i++) {
-        if (n >= 25 && !brl && w > goal * 0.5) { brl = true; if (n <= 26) msg(['THE BARREL', 'The wave stands up and curls over you. Under the curtain: PULL IN — HOLD A.', 'Inside: A leaps, D jumps. On the way out HOLD A — let go at the wake.']); w += 450; add('barrel', w); w += st.v * 5.4; } phrase(i + k, Math.min(6, 4 + (i % 3)), { n: Math.min(10 + k + i, 18 + k), u: 3 + (i % 3), f: 2 + Math.floor(k / 2) });
+        if (n >= 27 && !brl && w > goal * 0.5) { brl = true; if (n <= 28) msg(['THE BARREL', 'The wave stands up and curls over you. Under the curtain: PULL IN — HOLD A.', 'Inside: A leaps, D jumps. On the way out HOLD A — let go at the wake.']); w += 450; add('barrel', w); w += st.v * 5.4; } phrase(i + k, Math.min(6, 4 + (i % 3)), { n: Math.min(10 + k + i, 18 + k), u: 3 + (i % 3), f: 2 + Math.floor(k / 2) });
         if (n >= 20 && i % 3 === 1) add('cloud', w + 100);   // v061: poison clouds from stage 20
         if (n >= 15 && i % 2 === 0) for (let q = 0, g = Math.min(6, 3 + Math.floor((n - 15) / 4)); q < g; q++) add('e', w + 60 + q * 26);   // v062: a school of eels between the phrases from stage 15 (3, growing to 6)
         if (i % 2 === 1) { add('kick', w + 140); calm(700); } else ride(700, 0.62 + 0.02 * Math.min(10, k), 0.28, 700); }   // v062: one more, denser wave of tadpoles per phrase pair   // v061: a good free wave between the phrases — with something in the sky
@@ -1282,7 +1282,7 @@ function updClouds(dt) {
     c.t += dt; const rx = sx(G.u);
     if (c.ph === 'in') { c.y += ((G.y || 120) - 74 - c.y) * Math.min(1, dt * 1.5); c.x -= 70 * dt;
       if (Math.abs(c.x - rx) < 12 && !G.barrel) { c.ph = 'warn'; c.t = 0; c.cu = (G.restU || G.u) + 6; c.pi = 0;
-        if ((ST.n === 20 || ST.n === 21) && ST.kind === 'wave' && !G.cloudTeach) { G.cloudTeach = true; c.teach = true; G.slow = Math.max(G.slow, 0.9); } } }   // the first cloud of stage 20 and 21: slow motion and a big TAP A
+        if ((ST.n === 20 || ST.n === 21) && ST.kind === 'wave' && !G.cloudTeach) { G.cloudTeach = true; c.teach = true; } } }   // the first cloud of stage 20 and 21: a big TAP A (v066: no slow motion — the flow stays)
     else if (c.ph === 'warn' || c.ph === 'rain') {
       c.x += (sx(c.cu + (CLOUD.fwd - CLOUD.back) / 2) - c.x) * Math.min(1, dt * 6); c.y += (ysAt(Math.max(3, c.cu), G.S) - 74 - c.y) * Math.min(1, dt * 3);
       if (c.ph === 'warn' && c.t > CLOUD.warn) { c.ph = 'rain'; c.t = 0; }

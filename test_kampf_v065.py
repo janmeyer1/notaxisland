@@ -30,13 +30,13 @@ async def main():
         await pg.evaluate(HELP)
 
         print('1 · the stage scripts: cloud lessons at 20 and 21, one barrel per stage from 25')
-        r = await pg.evaluate("""(() => { const out = {}; for (const n of [20, 21, 22, 24, 25, 26, 30]) { const st = KAMPF.stageDef({ stage: n, kind: 'wave' }), L = KAMPF.buildLevel(st, KAMPF.mulberry32(5));
+        r = await pg.evaluate("""(() => { const out = {}; for (const n of [20, 21, 22, 24, 26, 27, 28, 30]) { const st = KAMPF.stageDef({ stage: n, kind: 'wave' }), L = KAMPF.buildLevel(st, KAMPF.mulberry32(5));
           out[n] = { barrels: L.ev.filter(e => e.k === 'barrel').length, clouds: L.ev.filter(e => e.k === 'cloud').length }; }
-          localStorage.setItem('robinson_tutorials', 'on'); const m = {}; for (const n of [20, 21, 25, 26]) { const L = KAMPF.buildLevel(KAMPF.stageDef({ stage: n, kind: 'wave' }), KAMPF.mulberry32(5)); m[n] = L.msgs.map(x => x.lines && x.lines[0]).join('|'); }
+          localStorage.setItem('robinson_tutorials', 'on'); const m = {}; for (const n of [20, 21, 27, 28]) { const L = KAMPF.buildLevel(KAMPF.stageDef({ stage: n, kind: 'wave' }), KAMPF.mulberry32(5)); m[n] = L.msgs.map(x => x.lines && x.lines[0]).join('|'); }
           localStorage.setItem('robinson_tutorials', 'off'); return { out, m }; })()""")
         o = r['out']
-        check(all(o[str(n)]['barrels'] == 0 for n in [20, 21, 22, 24]) and all(o[str(n)]['barrels'] == 1 for n in [25, 26, 30]), f'one barrel per stage from 25, none before ({o})')
-        check('NEW: POISON CLOUDS' in r['m']['20'] and 'POISON CLOUDS' in r['m']['21'] and 'THE BARREL' in r['m']['25'] and 'THE BARREL' in r['m']['26'], f'lesson cards: clouds at 20 and 21, the barrel at 25 and 26 ({r["m"]})')
+        check(all(o[str(n)]['barrels'] == 0 for n in [20, 21, 22, 24, 26]) and all(o[str(n)]['barrels'] == 1 for n in [27, 28, 30]), f'one barrel per stage from 27, none before ({o})')
+        check('NEW: POISON CLOUDS' in r['m']['20'] and 'POISON CLOUDS' in r['m']['21'] and 'THE BARREL' in r['m']['27'] and 'THE BARREL' in r['m']['28'], f'lesson cards: clouds at 20 and 21, the barrel at 27 and 28 ({r["m"]})')
 
         print('2 · the poison cloud: the rain falls where he rides; the A climb and leap take him out, much too early = rain again')
         await pg.evaluate("T65.start(22)"); await pg.evaluate("T65.step(1.0)")
@@ -63,7 +63,7 @@ async def main():
         check(dkey['hits'] >= 4, f'a D hop does not get him out of the column ({dkey})')
         r = await pg.evaluate("""(() => { const G = KAMPF.G; T65.calm(); G.clouds = []; const s = KAMPF.stageDef({ stage: 20, kind: 'wave' }); KAMPF.ST.n = 20; G.cloudTeach = false;
           const c = { x: KAMPF.sx(G.u) + 5, y: G.y - 74, t: 0, ph: 'in', hit: false }; G.clouds = [c]; T65.step(0.05); const r = [c.ph, !!c.teach, G.slow > 0]; KAMPF.ST.n = 22; G.slow = 0; G.clouds = []; return r; })()""")
-        check(r == ['warn', True, True], f'stage 20/21: the first cloud teaches — slow motion and a big TAP A ({r})')
+        check(r == ['warn', True, False], f'stage 20/21: the first cloud teaches with a big TAP A — no slow motion ({r})')
 
         print('3 · the shield and the flamethrower')
         await pg.evaluate("T65.start(12, { flame: 1 })"); await pg.evaluate("T65.step(1.0)")
@@ -84,7 +84,7 @@ async def main():
 
         print('4 · the barrel: the herald, PULL IN — HOLD A, the drum, the way out')
         async def barrel_to_window():
-            await pg.evaluate("T65.start(25, { flame: 1 }); T65.step(1.0); T65.calm(); KAMPF.startBarrel(); 1")
+            await pg.evaluate("T65.start(27, { flame: 1 }); T65.step(1.0); T65.calm(); KAMPF.startBarrel(); 1")
             return await pg.evaluate("""(() => { const B = KAMPF.G.barrel, K = []; T65.step(3.3, t => { if (Math.round(t * 60) % 12 === 0) K.push(+B.K.toFixed(2)); }); return { ph: B.ph, t: +B.t.toFixed(2), K }; })()""")
         r = await barrel_to_window()
         ks = r['K']; drops = sum(1 for i in range(1, len(ks) - 1) if ks[i] > ks[i - 1] and ks[i] > ks[i + 1])
