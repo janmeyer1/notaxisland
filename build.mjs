@@ -115,5 +115,19 @@ function build() {
   const out = path.join(ROOT, '..', `robinson_v${VERSION}.html`);
   fs.writeFileSync(out, html);
   console.log(`robinson_v${VERSION}.html: ${(html.length / 1024).toFixed(0)} KB -> ${out}`);
+  pages(html);
+}
+// GitHub Pages: builds/ keeps every version; builds/index.html lists them (Pages shows no folder listings), index.html forwards to the newest
+function pages(html) {
+  const dir = path.join(ROOT, 'builds'); fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, `robinson_v${VERSION}.html`), html);
+  const all = fs.readdirSync(dir).filter(f => /^robinson_v\d+\.html$/.test(f)).map(f => ({ f, v: +f.match(/\d+/)[0], kb: fs.statSync(path.join(dir, f)).size / 1024, d: fs.statSync(path.join(dir, f)).mtime })).sort((a, b) => b.v - a.v);
+  const head = t => `<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">\n<title>${t}</title>\n`;
+  const css = '<style>body{background:#10202a;color:#f6f1e6;font:16px system-ui,sans-serif;max-width:560px;margin:0 auto;padding:24px 16px}a{color:#f0c060;text-decoration:none}a:hover{text-decoration:underline}li{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid #2a3c48}ul{list-style:none;padding:0}small{color:#9fb3bf}</style>\n';
+  const rows = all.map((b, i) => `<li><a href="${b.f}">Robinson v${String(b.v).padStart(3, '0')}${i ? '' : ' · newest'}</a><small>${b.kb.toFixed(0)} KB</small></li>`).join('\n');
+  fs.writeFileSync(path.join(dir, 'index.html'), head('Robinson builds') + css + `</head><body><h1>Robinson builds</h1>\n<ul>\n${rows}\n</ul></body></html>\n`);
+  const top = all[0].f;
+  fs.writeFileSync(path.join(ROOT, 'index.html'), head('Robinson') + `<meta http-equiv="refresh" content="0; url=builds/${top}">\n` + css + `</head><body><p>Washing ashore… <a href="builds/${top}">play the newest build</a> · <a href="builds/">all builds</a></p></body></html>\n`);
+  console.log(`builds/: ${all.length} versions listed, index.html -> builds/${top}`);
 }
 build();
