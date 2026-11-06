@@ -8,7 +8,7 @@
 'use strict';
 const WELT = SPIEL.welt('kampf');
 const $ = id => WELT.$(id);
-const cv = $('kcv'), ctx = cv.getContext('2d');
+const cv = $('kcv'); let ctx = cv.getContext('2d');   // v064: let — the shield draws him once more into its own canvas
 let W = 480, H = 270, SC = 2, DPR = 1;   // SC = device pixels per world unit
 const RES = 8;                            // sprite prerender: pixels per world unit
 
@@ -128,9 +128,11 @@ function buildLevel(st, rng, fl) {
     case 9: msg(9); calm(600); wall({ n: 8, u: 3, f: 1 }); chain(3); wall({ n: 9, u: 3, f: 2 }); chain(4); wall({ n: 10, u: 3, f: 2 }); chain(3); wall({ n: 10, u: 4, f: 2 }); break;
     case 10: msg(10); calm(600); [3, 5, 4, 4].forEach((k, i) => phrase(i, k, { n: 9 + i, u: 3 + (i >> 1), f: 2 })); break;   // v054: varied phrases
     default: {   // 11+: like 10 without the boss — longer, faster, more
-      const k = n - 10; msg(n === 15 ? ['NEW: BLACK EELS', 'They come up from below and swim faster than the water.', 'Stamp them a few times — or let the cat have them (Eel Catcher).'] : n === 20 ? ['NEW: POISON CLOUDS', 'A black cloud drifts in from the top and rains poison on you.', 'When it flashes A!, tap A: the leap dodges the rain.'] : ['Stage ' + n, 'Longer, faster, more of everything.', '']); calm(500);   // v061: a new monster every 5 stages
+      const k = n - 10; msg(n === 15 ? ['NEW: BLACK EELS', 'They come up from below and swim faster than the water.', 'Stamp them a few times — or let the cat have them (Eel Catcher).'] : n === 20 ? ['NEW: POISON CLOUDS', 'A black cloud stops over you and rains poison where you ride.', 'When it flashes A!, tap A: climb back and leap out of the rain.'] : n === 21 ? ['POISON CLOUDS', 'It rains on the stretch where you ride. Tap A when it flashes A!', 'Tap much too early and you come down in the rain again.'] : ['Stage ' + n, 'Longer, faster, more of everything.', '']); calm(500);   // v061: a new monster every 5 stages
       const goal = stageTime(n) * st.v * 1.35;   // v055: phrases until the stage is as long as its time (it ran ~60 s instead of ~90)
-      for (let i = 0; i < 40 && (i < 3 || w < goal - 900); i++) { phrase(i + k, Math.min(6, 4 + (i % 3)), { n: Math.min(10 + k + i, 18 + k), u: 3 + (i % 3), f: 2 + Math.floor(k / 2) });
+      let brl = false;   // v064: one barrel per stage from stage 25, in the second half
+      for (let i = 0; i < 40 && (i < 3 || w < goal - 900); i++) {
+        if (n >= 25 && !brl && w > goal * 0.5) { brl = true; if (n <= 26) msg(['THE BARREL', 'The wave stands up and curls over you. Under the curtain: PULL IN — HOLD A.', 'Inside: A leaps, D jumps. On the way out HOLD A — let go at the wake.']); w += 450; add('barrel', w); w += st.v * 5.4; } phrase(i + k, Math.min(6, 4 + (i % 3)), { n: Math.min(10 + k + i, 18 + k), u: 3 + (i % 3), f: 2 + Math.floor(k / 2) });
         if (n >= 20 && i % 3 === 1) add('cloud', w + 100);   // v061: poison clouds from stage 20
         if (n >= 15 && i % 2 === 0) for (let q = 0, g = Math.min(6, 3 + Math.floor((n - 15) / 4)); q < g; q++) add('e', w + 60 + q * 26);   // v062: a school of eels between the phrases from stage 15 (3, growing to 6)
         if (i % 2 === 1) { add('kick', w + 140); calm(700); } else ride(700, 0.62 + 0.02 * Math.min(10, k), 0.28, 700); }   // v062: one more, denser wave of tadpoles per phrase pair   // v061: a good free wave between the phrases — with something in the sky
@@ -211,6 +213,7 @@ function wakeLice(dt) {
   if (!PRED_SIM) burst(u, ysAt(u, G.S), 5, 0, 30, -40);
 }
 function levelSpawn() {
+  if (G.barrel && G.barrel.ph !== 'out') return;   // v064: nothing new while the barrel is on
   const edge = G.S + G.camU + W + 40;
   while (LV.ei < LV.ev.length && LV.ev[LV.ei].w < edge) {
     const e = LV.ev[LV.ei];
@@ -230,6 +233,7 @@ function spawnEvent(e) {
   switch (e.k) {
     case 't': spawn('t'); break;
     case 'e': { const m = newMon('e', G.camU + W + 24); m.rise = 0.6; G.mons.push(m); G.spawned++; firstSight('e'); break; }   // v061: it comes up from below
+    case 'barrel': startBarrel(); break;
     case 'cloud': G.clouds.push({ x: W + 40, y: (G.y || 120) - 80, t: 0, ph: 'in', hit: false }); firstSight('cloud'); break;
     case 'f': spawn('f'); break;
     case 'hrow': for (let i = 0; i < e.n; i++) G.HL.push({ w: e.w + i * 15, h: 4 + Math.sin(i * 0.9) * 1.5, got: false, ph: i }); break;
@@ -454,9 +458,9 @@ function reset(cfg) {
     u: 120, y: 0, vy: 0, q: 0, air: false, airT: 0, qAir: 0,
     dashT: 0, dashDur: 0, dashU: 0, dashPow: 0, dashFlag: false, diveT: 0, diveDur: 0.4, diveK: 0, jumpBusy: false, airTop: 0,
     dmg: 1 + (up.dmg || 0), U: { jump: st.jump, cycle: st.cycle, void: !!up.void, glide: !!up.glide, flame: !!up.flame },
-    up: { boostLen: P.boostLen * (1 + 0.25 * (up.boostLen || 0)), magnet: 3 * (up.magnet || 0), magOwned: (up.magnet || 0) > 0, glideMax: 2 + 0.5 * (up.glideLen || 0), flameDps: (14 + 7 * (up.flamePow || 0)), boom: 1 + 0.5 * (up.cycleBoom || 0), dive: 1 + 0.3 * (up.cycleDive || 0),
+    up: { boostLen: P.boostLen * (1 + 0.25 * (up.boostLen || 0)), magnet: 3 * (up.magnet || 0), magOwned: (up.magnet || 0) > 0, glideMax: 2 + 0.5 * (up.glideLen || 0), flameDps: (12 + 6 * (up.flamePow || 0)), boom: 1 + 0.5 * (up.cycleBoom || 0), dive: 1 + 0.3 * (up.cycleDive || 0),
       voidNeed: Math.round(40 * Math.pow(0.85, up.voidCharge || 0)), voidHeal: 0.3 + 0.1 * (up.voidHeal || 0) },
-    catEel: !!up.catEel, clouds: [],   // v061
+    catEel: !!up.catEel, clouds: [], barrel: null, riderOv: null,   // v061 · v064: the barrel
     won: false, wonT: 0, endS: 1e9, boss: null, elite: null, pages: [], shocks: [], boom: null, chainN: 0, chainT: 0, DL: [], banner: null,
     stam: Math.max(1, Math.round(cfg.stam || 1)), hurtT: 0, ifr: 0, over: false, overT: 0, HL: [],
     wipe: 0, lipWarn: 0, lipU: 7, volC: 0, volN: 0, volWarn: 0,
@@ -528,6 +532,7 @@ function float(x, y, s, col, sz) { G.floats.push({ x, y, s, col: col || '#ffffff
 const IN = { a: false, d: false };
 let clock = 0, running = false, paused = false;
 function tap(k) { if (!G || G.over || G.won) return; if (G.tafeln && G.T - G.tafelB > 6) { G.tafelB = G.T; G.tafeln.push({ u: G.camU + W + 30, s: G.S, txt: 'Just relax now — time to act will come' }); }   // v062: tapping in stage 1 sends a gentle sign
+  if (G.barrel && barrelTap(k)) return;
   if (k === 'd') tapD(); else tapA(); }
 function resume() { paused = false; try { cv.focus({ preventScroll: true }); } catch (_) {} }
 addEventListener('keydown', e => {
@@ -770,17 +775,56 @@ function tapA() {
   G.boom = { t: 0, dir: -1, R: 115, d: 2 * G.dmg * G.up.boom, out: new Set(), back: new Set(), x: G.u, y: G.y - 9, ang: 0 }; SFX.whoosh();
   if (good) { G.C.cyclesGood++; G.wallEv.good = true; combo(); float(G.u, G.y - 34, 'PERFECT', '#c8ffd9'); }
 }
-function updFlame(dt) {   // v054: a colourful flamethrower forward while A is held during the boomerang and the climb
-  G.flameOn = !!(G.U.flame && IN.a && G.cyc && (G.cyc.ph === 'boom' || G.cyc.ph === 'climb'));
+function flameAct() { return G.U.flame && IN.a && G.cyc && (G.cyc.ph === 'boom' || G.cyc.ph === 'climb' || (G.cyc.ph === 'dash' && G.air)); }   // v064: it burns until he dives into the water
+function updFlame(dt) {   // v054: a colourful flamethrower forward while A is held during the boomerang and the climb; v064: through the leap, aimed down at the wall below
+  for (const m of G.mons) if (m.burn > 0) m.burn -= dt;
+  const was = G.flameOn; G.flameOn = !!flameAct();
   if (!G.flameOn) return;
-  G.flameT += dt; const dmg = G.up.flameDps * G.dmg * dt, ox = G.u + 6, oy = G.y - 10;
-  // aim at the middle of the wall in front of him (it usually sits lower on the face than his chest)
-  let ay = 0, an = 0; const e = G.wallEv;
-  if (e) for (const m of e.mons) { if (m.mode !== 'come') continue; const [x, y] = mPos(m); if (x > ox && x < ox + 130) { ay += Math.atan2(y - oy, x - ox); an++; } }
-  const dir = an ? ay / an : 0.15; G.flameDir = dir;
-  for (const m of G.mons) { if (m.mode === 'dead' || m.type === 'm' || m.type === 'u') continue; const [x, y] = mPos(m), dx = x - ox; if (dx < -2 || dx > 120) continue;
-    if (Math.abs(Math.atan2(y - oy, dx) - dir) < 0.45 || Math.hypot(dx, y - oy) < 14) damage(m, dmg, 'flame'); }
-  if (!PRED_SIM && !P.lite) for (let i = 0; i < 3; i++) { const a = dir + (Math.random() - 0.5) * 0.7, sp = 190 + Math.random() * 90; part(ox, oy, Math.cos(a) * sp, Math.sin(a) * sp - 10, 0.4, [11, 12, 16, 17, 14][Math.floor(Math.random() * 5)], 1.4, -40, true); }
+  G.flameT += dt; const ox = G.u + 6, oy = G.y - 10, air = G.air;
+  let ay = 0, an = 0;
+  if (air) { for (const m of G.mons) { if (m.mode !== 'come' || m.type === 'm' || m.type === 'u') continue; const [x, y] = mPos(m); if (x > ox - 30 && x < ox + 130 && y > oy - 4) { ay += Math.atan2(y - oy, x - ox); an++; } } }
+  else { const e = G.wallEv; if (e) for (const m of e.mons) { if (m.mode !== 'come') continue; const [x, y] = mPos(m); if (x > ox && x < ox + 130) { ay += Math.atan2(y - oy, x - ox); an++; } } }   // aim at the middle of the wall in front of him (it usually sits lower on the face than his chest)
+  const want = an ? ay / an : (air ? 0.85 : 0.15);
+  G.flameDir = was && G.flameDir !== undefined ? G.flameDir + (want - G.flameDir) * Math.min(1, dt * 10) : want;
+  G.flameX = ox; G.flameY = oy;
+  flameWork(ox, oy, G.flameDir, G.mons, dt, !was);
+}
+// the burning itself, outside and in the barrel: damage in the cone, the ignition, embers, smoke, steam, the crackle
+function flameWork(ox, oy, dir, list, dt, start) {
+  const dmg = G.up.flameDps * G.dmg * dt;
+  for (const m of list) { if (m.mode === 'dead' || m.type === 'm' || m.type === 'u') continue; const [x, y] = mPos(m), dx = x - ox, dy = y - oy, d = Math.hypot(dx, dy);
+    if (d > 125) continue; const da = Math.atan2(Math.sin(Math.atan2(dy, dx) - dir), Math.cos(Math.atan2(dy, dx) - dir));
+    if (Math.abs(da) < 0.45 || d < 14) { m.burn = 0.5; if (G.barrel && G.barrel.scene) { const n0 = G.KH.length; damage(m, dmg, 'flame'); drumHearts(n0); } else damage(m, dmg, 'flame'); } }
+  if (start) {   // the ignition: a fireball, a jolt, a roar
+    G.flameT0 = G.T;
+    ring(ox, oy, 2, 22, 0.35, '#ffc21a', true, 1.4); burst(ox, oy, P.lite ? 8 : 22, 12, 140, -40, true); burst(ox, oy, P.lite ? 4 : 10, 16, 90, -30, true);
+    G.shake = Math.max(G.shake, 0.12); if (!PRED_SIM) { noiseBurst(0.45, 'lowpass', 700, 0.32); tone(140, 60, 0.3, 'sawtooth', 0.1); }
+  }
+  if (PRED_SIM) return;
+  if ((G.flameSnd = (G.flameSnd || 0) - dt) <= 0) { G.flameSnd = 0.06 + Math.random() * 0.05; noiseBurst(0.07, 'bandpass', 1300 + Math.random() * 2600, 0.05 + Math.random() * 0.04); }
+  const n = P.lite ? 1 : 4, c = Math.cos(dir), s = Math.sin(dir);
+  for (let i = 0; i < n; i++) { const a = dir + (Math.random() - 0.5) * 0.7, sp = 190 + Math.random() * 90; part(ox, oy, Math.cos(a) * sp, Math.sin(a) * sp - 10, 0.4, [11, 12, 16, 17, 14][Math.floor(Math.random() * 5)], 1.4, -40, true); }
+  if (!P.lite) {
+    { const r = 40 + Math.random() * 70; part(ox + c * r, oy + s * r, -40 - Math.random() * 60, -30 - Math.random() * 50, 0.7 + Math.random() * 0.5, Math.random() < 0.5 ? 12 : 16, 0.8, -60, true); }   // embers on the wind
+    if (Math.random() < 0.5) { const r = 60 + Math.random() * 50; part(ox + c * r, oy + s * r - 4, -30 - Math.random() * 30, -25 - Math.random() * 20, 1.0 + Math.random() * 0.6, 3, 2.6, -30, false); }   // dark smoke
+    if (!(G.barrel && G.barrel.scene)) for (let r = 30; r <= 110; r += 20) { const x = ox + c * r, y = oy + s * r, w = ysAt(Math.max(3, x), G.S); if (y > w - 1) { if (Math.random() < 0.5) part(x, w - 1, (Math.random() - 0.5) * 50, -50 - Math.random() * 50, 0.6, 0, 1.6, -60, false); break; } }   // steam where it hits the water
+  }
+}
+function drawFlame(x, y, dir, t0) {   // v064: tongues of fire in three layers (red, orange, a white-yellow core), drawn as light, with a warm glow around him
+  const lite = P.lite, t = G.T, n = lite ? 3 : 7, ig = Math.min(1, Math.max(0.15, (G.T - (t0 || 0)) / 0.12));
+  ctx.save(); ctx.translate(x, y); ctx.rotate(dir); ctx.globalCompositeOperation = 'lighter';
+  if (!lite) { const g = ctx.createRadialGradient(30, 0, 2, 30, 0, 100); g.addColorStop(0, 'rgba(255,170,60,.3)'); g.addColorStop(1, 'rgba(255,80,40,0)'); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(30, 0, 100, 0, 7); ctx.fill(); }
+  for (const [lk, col, al, wd] of [[1, '255,50,110', 0.42, 13], [0.78, '255,130,30', 0.55, 9], [0.48, '255,240,170', 0.85, 4.5]]) for (let i = 0; i < n; i++) {
+    const ph = i * 1.7 + t * (11 + i), len = (85 + 22 * Math.sin(ph) + 14 * Math.sin(t * 23 + i * 3)) * lk * ig, w = wd * (0.75 + 0.3 * Math.sin(ph * 1.3)), bend = Math.sin(t * 9 + i) * w * 0.5;
+    ctx.save(); ctx.rotate(Math.sin(t * 17 + i * 2.3) * 0.16 + (i - (n - 1) / 2) * 0.07);
+    const g = ctx.createLinearGradient(0, 0, len, 0); g.addColorStop(0, 'rgba(' + col + ',' + al + ')'); g.addColorStop(0.55, 'rgba(' + col + ',' + (al * 0.65) + ')'); g.addColorStop(1, 'rgba(' + col + ',0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(0, -1.4); ctx.quadraticCurveTo(len * 0.45, -w + bend, len, bend * 0.4); ctx.quadraticCurveTo(len * 0.45, w + bend, 0, 1.4); ctx.closePath(); ctx.fill(); ctx.restore(); }
+  ctx.restore();
+}
+function burnFlames(x, y, k) {   // little flames on a monster the flamethrower has caught
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 3; i++) { const h = (5 + 3 * Math.sin(G.T * 20 + i * 2)) * k, dx = (i - 1) * 3 * k; ctx.fillStyle = i === 1 ? 'rgba(255,220,120,.85)' : 'rgba(255,110,40,.75)'; ctx.beginPath(); ctx.moveTo(x + dx - 2 * k, y); ctx.quadraticCurveTo(x + dx, y - h * 1.2, x + dx + 0.5 * k, y - h); ctx.quadraticCurveTo(x + dx + 1 * k, y - h * 0.4, x + dx + 2 * k, y); ctx.closePath(); ctx.fill(); }
+  ctx.restore();
 }
 function updCycle(dt) {
   updFlame(dt);
@@ -883,6 +927,7 @@ function kill(m, how) {
   const sz = Math.max(0.6, ((MON[m.type] || { w: 9 }).w) / 9);   // v053: clouds by the monster's size, a heart per kill
   burst(x, y - 3, Math.round(12 * sz), ci, 90 * Math.sqrt(sz), -70);
   burst(x, y - 3, Math.round(6 * sz), 7, 70 * Math.sqrt(sz), -50, true); burst(x, y - 3, Math.round(6 * sz), 13, 35, -25);
+  if (how === 'flame') { burst(x, y - 3, 10, 3, 60, -50); burst(x, y - 6, 8, 19, 30, -40); }   // v064: charred black, a puff of smoke
   if (!PRED_SIM) { SFX.squelch(); if (m.type !== 'B' && m.type !== 'c' && m.type !== 'm' && (m.type !== 'l' || (G.liceK = (G.liceK || 0) + 1) % 5 === 0)) G.KH.push({ u: x, y: y - 6, vu: 60, vy: -130 }); }
   if (how === 'void') { burst(x, y - 3, 10, 14, 70, -30, true); burst(x, y - 3, 6, 15, 40, -20, true); G.bolts.push({ pts: boltPath(x - 6, y - 8, x + 6, y + 2), t: 0, life: 0.18, blue: true }); G.chainN++; G.chainT = 1.6; }
   // drops: rum from mussels, fish tails from the minnows (the cat's currency)
@@ -1227,29 +1272,295 @@ function catPrey(fromU, lo, hi) {
   }
   return best;
 }
-function updClouds(dt) {   // v061
+// v064: the rain falls on the stretch where he rides — out of it by the A climb and leap, not by an invisible shield.
+// The column is fixed on the water (in wave units) once the cloud flashes A!, round the spot where he rides when he does nothing: a little behind it, a good way ahead.
+// Five pulses: a good tap (from ~1 s before A! to ~0.6 s after) has him climbing out, in the leap or in the dive for all of them; a much too early one has him back in the rain for the last.
+const CLOUD = { warn: 0.75, rain: 2.45, pulses: [0.3, 0.8, 1.3, 1.8, 2.3], back: 14, fwd: 40 };
+function inRain(c) { return G.u > c.cu - CLOUD.back && G.u < c.cu + CLOUD.fwd; }
+function updClouds(dt) {
   for (const c of G.clouds) {
-    c.t += dt; const rx = sx(G.u), dodge = (G.cyc && G.cyc.ph !== 'boom') || G.dashT > 0 || G.diveT > 0;
-    if (c.ph !== 'out') { const ty = (G.y || 120) - 74; c.y += (ty - c.y) * Math.min(1, dt * (c.ph === 'in' ? 1.5 : 3)); }   // it hangs above him
-    if (c.ph === 'in') { c.x -= 70 * dt; if (Math.abs(c.x - rx) < 12) { c.ph = 'warn'; c.t = 0; } }
-    else if (c.ph === 'warn') { c.x += (rx + 6 - c.x) * Math.min(1, dt * 3); if (c.t > 0.75) { c.ph = 'rain'; c.t = 0; } }
-    else if (c.ph === 'rain') { c.x += (rx + 6 - c.x) * Math.min(1, dt * 2); if (!c.hit && c.t > 0.25 && Math.abs(c.x - rx) < 22) { if (dodge) { c.hit = true; c.dodged = true; float(G.u, G.y - 22, 'dodged!', '#c8ffb0', 11); G.C.cloudDodge = (G.C.cloudDodge || 0) + 1; } else if (c.t > 0.45) { c.hit = true; hurt('cloud', 2); burst(G.u, G.y - 10, 18, 7, 70, -40); float(G.u, G.y - 40, 'POISON', '#9dff5a', 12); } } if (c.t > 1.0) { c.ph = 'out'; c.t = 0; } }   // v062: poison = 2 × the stage factor (6 from stage 8)
+    c.t += dt; const rx = sx(G.u);
+    if (c.ph === 'in') { c.y += ((G.y || 120) - 74 - c.y) * Math.min(1, dt * 1.5); c.x -= 70 * dt;
+      if (Math.abs(c.x - rx) < 12 && !G.barrel) { c.ph = 'warn'; c.t = 0; c.cu = (G.restU || G.u) + 6; c.pi = 0;
+        if ((ST.n === 20 || ST.n === 21) && ST.kind === 'wave' && !G.cloudTeach) { G.cloudTeach = true; c.teach = true; G.slow = Math.max(G.slow, 0.9); } } }   // the first cloud of stage 20 and 21: slow motion and a big TAP A
+    else if (c.ph === 'warn' || c.ph === 'rain') {
+      c.x += (sx(c.cu + (CLOUD.fwd - CLOUD.back) / 2) - c.x) * Math.min(1, dt * 6); c.y += (ysAt(Math.max(3, c.cu), G.S) - 74 - c.y) * Math.min(1, dt * 3);
+      if (c.ph === 'warn' && c.t > CLOUD.warn) { c.ph = 'rain'; c.t = 0; }
+      else if (c.ph === 'rain') {
+        if (c.pi < CLOUD.pulses.length && c.t >= CLOUD.pulses[c.pi]) { c.pi++;
+          const wet = inRain(c), safe = G.cyc && G.cyc.ph === 'dash';
+          if (wet && !safe) { c.hits = (c.hits || 0) + 1; hurt('cloud', 0.4); burst(G.u, G.y - 10, 10, 7, 60, -30); float(G.u, G.y - 40, 'POISON', '#9dff5a', 11); }   // v064: 5 pulses × (0.4 × the stage factor) = the old full dose
+          else if (wet) { for (let k = 0; k < 6; k++) part(G.u + (Math.random() - 0.5) * 16, G.y - 18 - Math.random() * 6, (Math.random() - 0.5) * 60, -30 - Math.random() * 30, 0.35, 15, 0.8, 200); }   // it splashes off his shield
+          if (c.pi === CLOUD.pulses.length && !c.hits) { float(G.u, G.y - 24, 'dry!', '#c8ffb0', 11); G.C.cloudDodge = (G.C.cloudDodge || 0) + 1; } }
+        if (c.t > CLOUD.rain) { c.ph = 'out'; c.t = 0; }
+      }
+    }
     else { c.x -= 90 * dt; c.y -= 18 * dt; }
   }
-  G.clouds = G.clouds.filter(c => c.x > -60 && c.y > -40);
+  G.clouds = G.clouds.filter(c => c.x > -80 && c.y > G.camY - VOFF() - 60);
 }
-function drawClouds() {   // v062: a bigger, darker cloud, a thick curtain of poison and green splashes where it lands
+function drawClouds() {   // v062: a bigger, darker cloud, a thick curtain of poison and green splashes where it lands; v064: the curtain covers the fixed column
   for (const c of G.clouds) {
     const x = c.x, y = c.y, dark = c.ph === 'warn' ? 0.6 + 0.4 * Math.sin(G.T * 20) : 1, K = 1.5;
-    if (c.ph === 'rain' || c.ph === 'warn') { const len = Math.max(30, (G.y || y + 60) - y + 6), N = c.ph === 'rain' ? 42 : 8;
-      ctx.strokeStyle = c.ph === 'rain' ? 'rgba(130,255,70,.85)' : 'rgba(130,255,70,.4)'; ctx.lineWidth = 1.6;
-      for (let i = 0; i < N; i++) { const rx = x - 20 + ((i * 7.3 + c.t * 90) % 40), ry = y + 8 + ((i * 13 + c.t * 300) % len); ctx.beginPath(); ctx.moveTo(rx, ry); ctx.lineTo(rx - 2, ry + 8); ctx.stroke(); }
-      if (c.ph === 'rain') { const gy = (G.y || y + 60) + 2; ctx.fillStyle = 'rgba(120,255,60,' + (0.35 + 0.2 * Math.sin(G.T * 12)) + ')'; ctx.beginPath(); ctx.ellipse(x, gy, 22, 4, 0, 0, 7); ctx.fill();
-        for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI + c.t * 3, r = 6 + ((c.t * 40 + i * 9) % 16); ctx.fillStyle = 'rgba(160,255,90,.8)'; ctx.fillRect(x + Math.cos(a) * r * 1.4, gy - Math.abs(Math.sin(a)) * r * .6, 1.6, 1.6); } } }
-    ctx.fillStyle = 'rgba(12,16,10,' + (0.9 * dark) + ')'; [[0, 0, 12], [-11, 3, 9], [11, 3, 10], [-4, -6, 9], [6, -5, 8], [-18, 5, 7], [18, 5, 7]].forEach(([dx, dy, r]) => { ctx.beginPath(); ctx.arc(x + dx * K, y + dy * K, r * K, 0, 7); ctx.fill(); });
+    if (c.ph === 'rain' || c.ph === 'warn') { const xa = sx(c.cu - CLOUD.back), xb = sx(c.cu + CLOUD.fwd), wd = xb - xa, gy = ysAt(Math.max(3, c.cu + 13), G.S) + 2, len = Math.max(30, gy - y), N = c.ph === 'rain' ? 60 : 10;
+      ctx.strokeStyle = c.ph === 'rain' ? 'rgba(130,255,70,.85)' : 'rgba(130,255,70,.35)'; ctx.lineWidth = 1.6;
+      for (let i = 0; i < N; i++) { const rx = xa + ((i * 7.3 + c.t * 90) % wd), ry = y + 8 + ((i * 13 + c.t * 300) % len); ctx.beginPath(); ctx.moveTo(rx, ry); ctx.lineTo(rx - 2, ry + 8); ctx.stroke(); }
+      if (c.ph === 'warn') { ctx.fillStyle = 'rgba(120,255,60,.16)'; ctx.fillRect(xa, gy - 3, wd, 4); }   // where it will land
+      if (c.ph === 'rain') { ctx.fillStyle = 'rgba(120,255,60,' + (0.35 + 0.2 * Math.sin(G.T * 12)) + ')'; ctx.beginPath(); ctx.ellipse((xa + xb) / 2, gy, wd / 2 + 2, 4, 0, 0, 7); ctx.fill();
+        for (let i = 0; i < 9; i++) { const a = (i / 9) * Math.PI + c.t * 3, r = 6 + ((c.t * 40 + i * 9) % 16); ctx.fillStyle = 'rgba(160,255,90,.8)'; ctx.fillRect(xa + ((i * 11.7) % wd) + Math.cos(a) * r * 0.6, gy - Math.abs(Math.sin(a)) * r * .6, 1.6, 1.6); } } }
+    ctx.fillStyle = 'rgba(12,16,10,' + (0.9 * dark) + ')'; [[0, 0, 12], [-11, 3, 9], [11, 3, 10], [-4, -6, 9], [6, -5, 8], [-18, 5, 7], [18, 5, 7], [26, 4, 7]].forEach(([dx, dy, r]) => { ctx.beginPath(); ctx.arc(x + dx * K, y + dy * K, r * K, 0, 7); ctx.fill(); });
     ctx.fillStyle = 'rgba(110,255,80,.85)'; ctx.fillRect(x - 9, y - 1, 2.4, 2.4); ctx.fillRect(x + 5, y - 1, 2.4, 2.4);
-    if (c.ph === 'warn') { ctx.fillStyle = '#fff'; ctx.font = '700 9px ' + FONT; ctx.textAlign = 'center'; ctx.fillText('A!', x, y - 22); }
+    if (c.ph === 'warn') {
+      if (c.teach) { const k = 1 + 0.18 * Math.sin(G.T * 14); ctx.save(); ctx.translate(x, y - 34); ctx.scale(k, k); ctx.font = '700 16px ' + FONT; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#0d2a10'; ctx.strokeText('TAP A', 0, 0); ctx.fillStyle = '#d4ff9a'; ctx.fillText('TAP A', 0, 0);
+        ctx.font = '600 6.5px ' + FONT; ctx.lineWidth = 2; ctx.strokeText('climb back — leap out of the rain', 0, 10); ctx.fillStyle = '#ffffff'; ctx.fillText('climb back — leap out of the rain', 0, 10); ctx.restore(); }
+      else { ctx.fillStyle = '#fff'; ctx.font = '700 9px ' + FONT; ctx.textAlign = 'center'; ctx.fillText('A!', x, y - 22); } }
   }
+}
+// ---------- v064: the BARREL — the wave stands up, throws its lip over him, and he rides inside the tube ----------
+// herald: the curl swells and falls back twice, the third time it goes over (K = the curl's size) · window: PULL IN — HOLD A ≥ 0.25 s
+// inside: a full-screen spinning drum; monsters, mussels and hearts spiral out of the eye; A = boomerang, climb, dash, dive (short), D = jump / big jump off a mussel
+// exit: the drum opens top right; once the sky shows, HOLD A — he climbs the wall to the wake top left; let go there = SPIT! (a giant leap), too early = the wave backs off, too late = into the wake
+const BRL = { herald: [[0, 1], [0.8, 1.75], [1.4, 1.15], [2.2, 2.05], [2.7, 1.3], [3.3, 3.0]], winA: 3.25, winB: 4.05, hold: 0.25, inT: 10, clearT: 1.4, skyT: 1.8, climbW: 1.55, wakeA: Math.PI * 1.25, early: 0.25, late: 0.12, spin: 2.4, ringW: 0.85 };
+function brlK(t) { const h = BRL.herald; for (let i = 1; i < h.length; i++) if (t < h[i][0]) { const [t0, k0] = h[i - 1], [t1, k1] = h[i], k = (t - t0) / (t1 - t0); return k0 + (k1 - k0) * (0.5 - 0.5 * Math.cos(Math.PI * k)); } return h[h.length - 1][1]; }
+function brlLipK() { const B = G.barrel; return B && !B.scene ? B.K : 1; }
+function startBarrel() {
+  if (G.barrel || G.boss || G.elite || ST.kind !== 'wave') return;
+  G.barrel = { ph: 'herald', t: 0, K: 1, rum: 0 }; G.C.barrels = (G.C.barrels || 0) + 1;
+  logE({ k: 'barrel', what: 'herald' });
+}
+function barrelTap(k) {
+  const B = G.barrel;
+  if (B.scene) { drumTap(k); return true; }
+  if (B.ph === 'enter') return true;
+  if (B.ph === 'herald' && k === 'a' && B.t >= BRL.winA && B.t < BRL.winB && !G.cyc && !G.air && G.dashT <= 0 && G.diveT <= 0 && B.hold === undefined) { B.hold = 0; return true; }
+  return false;
+}
+function updBarrel(dt) {
+  const B = G.barrel; if (!B || B.scene) return; B.t += dt;
+  if (B.ph === 'herald') {
+    B.K = brlK(B.t);
+    if ((B.rum -= dt) <= 0) { B.rum = 0.9; noiseBurst(0.8, 'lowpass', 140 + 40 * B.K, 0.18 + 0.08 * B.K); }
+    if (B.K > 1.6 && !P.lite && Math.random() < dt * 30) part(G.u - 60 + Math.random() * 40, Y_TOP + 4 - 10 * B.K, 40 + Math.random() * 90, -40 - Math.random() * 50, 0.6, 0, 1, 120);
+    if (B.hold !== undefined) {
+      if (IN.a) { B.hold += dt; if (B.hold >= BRL.hold) { B.ph = 'enter'; B.t = 0; G.cyc = null; SFX.whoosh(); noiseBurst(0.7, 'bandpass', 900, 0.3); float(G.u, G.y - 36, 'PULL IN!', '#bff8ff', 13); logE({ k: 'barrel', what: 'in' }); } }
+      else { B.hold = undefined; B.tapped = true; tapA(); }   // let go too soon: an ordinary A tap
+    }
+    if (B.ph === 'herald' && B.t >= BRL.winB) barrelClamp();
+  }
+  else if (B.ph === 'enter') { B.K += dt * 4; if (B.t >= 0.45) enterDrum(); }
+  else if (B.ph === 'crash') { B.K = Math.max(1, B.K - dt * 5); if (B.t > 0.8) G.barrel = null; }
+  else if (B.ph === 'out') { B.K = Math.max(1, B.K - dt * 2); if (B.t > 0.7) G.barrel = null; }
+}
+function barrelClamp() {   // the lip lands on him — no leap saves him from that
+  const B = G.barrel; B.ph = 'crash'; B.t = 0;
+  const c = G.cyc; G.cyc = null; G.ifr = 0; hurt('lip', 2); G.cyc = c;
+  burst(G.u, G.y - 20, 40, 0, 140, -60); burst(G.u, G.y - 10, 20, 1, 90, -30); G.shake = Math.max(G.shake, 0.5); G.stumble = Math.max(G.stumble, 0.5);
+  noiseBurst(0.7, 'lowpass', 500, 0.5); float(G.u, G.y - 44, 'CLAMPED!', '#ffffff', 13); logE({ k: 'barrel', what: 'clamp', tapped: !!B.tapped });
+}
+// the drum lives in world units, centred on the frozen camera: what goes on there uses the normal particles, floats and hurt()
+function drum() { const vo = VOFF(), R = Math.min(W * 0.42, H * 0.41); return { cx: G.camU + W / 2, cy: G.camY - vo + H * 0.5, R, re: Math.min(W, H) * 0.05 }; }
+function dpos(D, th, r) { return [D.cx + Math.cos(th) * r, D.cy + Math.sin(th) * r]; }
+function enterDrum() {
+  const B = G.barrel;
+  Object.assign(B, { scene: true, ph: 'in', t: 0, flash: 0.5, saveU: G.u, th: Math.PI / 2, h: 0, act: null, mons: [], hearts: [], shots: [], fly: [], spawnT: 0.6, musT: 1.8, heartT: 0.3, stampT: 0.3, open: 0, climb: null, missed: false });
+  G.cyc = null; G.air = false; G.dashT = G.diveT = 0; G.ramp = null; G.lift = 0; G.flameOn = false; G.boom = null; G.shots = [];
+  SFX.swell && SFX.swell();
+}
+function drumTap(k) {
+  const B = G.barrel; if (B.climb || B.ph === 'done') return;
+  if (B.ph === 'sky' && k === 'a' && !B.act) { B.climb = { t: 0 }; return; }
+  if (B.act) return;
+  if (k === 'a') {
+    if (!G.U.cycle) return;
+    if (B.ph === 'clear') B.missed = true;   // too early for the sky: an ordinary leap, and the exit goes by
+    B.act = { k: 'boom', t: 0 }; B.boom = { t: 0, a: B.th, hit: new Set() }; SFX.whoosh(); G.C.cycles++;
+  } else {
+    if (!G.U.jump) return;
+    const mu = B.mons.find(m => m.type === 'm' && m.dr.ring && m.mode !== 'dead' && B.th - m.dr.th > -0.06 && B.th - m.dr.th < 0.4);
+    if (mu) { const n0 = G.KH.length; kill(mu, 'jump'); drumHearts(n0); B.act = { k: 'jump', t: 0, dur: 0.9, H: drum().R * 0.62, big: true }; combo(); G.C.bigJumps++; float(G.u, G.y - 30, 'BIG JUMP!', '#ffe36a', 12); tone(660, 990, 0.08, 'triangle', 0.12); }
+    else { B.act = { k: 'jump', t: 0, dur: 0.55, H: 40 }; G.C.jumps++; }
+  }
+}
+function drumHearts(n0) {   // the hearts a kill drops fly to him in the drum
+  for (const h of G.KH.splice(n0)) G.barrel.fly.push({ x: h.u, y: h.y, t: 0 });
+}
+function drumMon(type, thA, T) {
+  const m = newMon(type, 0, 'glide'); m.dr = { th0: thA - BRL.spin * T, th: thA - BRL.spin * T, t: 0, T, r: 0, ring: false, w: type === 'f' ? 1.15 : BRL.ringW }; m.vx = 1; m.vy = 0; return m;
+}
+function drumArrive(o, D, dt) {   // out of the eye along the spiral, then round the wall
+  const d = o.dr; d.t += dt;
+  if (!d.ring) { const k = Math.max(0, Math.min(1, d.t / d.T)); d.r = D.re + (D.R - D.re) * Math.pow(k, 1.7); d.th = d.th0 + BRL.spin * d.t; if (k >= 1) d.ring = true; }
+  else { d.r = D.R; d.th += d.w * dt; }
+  const [x, y] = dpos(D, d.th, d.r); o.x = x; o.y = y;
+}
+function updDrum(dt) {
+  const B = G.barrel, D = drum(), mk = () => (B.ph === 'in' && B.t < BRL.inT - 2.2);
+  B.t += dt; if (B.flash > 0) B.flash -= dt;
+  if (B.ph === 'in' && B.t >= BRL.inT) { B.ph = 'clear'; B.t = 0; }
+  else if (B.ph === 'clear') { B.open = Math.min(1, B.t / BRL.clearT); if (B.t >= BRL.clearT) { B.ph = 'sky'; B.t = 0; B.open = 1; } }
+  if ((B.ph === 'clear' || B.ph === 'sky') && B.missed && !B.act) return exitDrum('fat');
+  if (B.ph === 'sky' && !B.climb && !B.act && B.t > BRL.skyT) return exitDrum('fat');
+  // what comes out of the eye
+  if (mk()) {
+    if ((B.spawnT -= dt) <= 0) { B.spawnT = Math.max(0.34, 0.55 - 0.01 * (ST.n - 25)); const r = RND(), tp = r < 0.55 ? 't' : r < 0.72 ? 'l' : r < 0.88 ? 'w' : 'f';
+      B.mons.push(drumMon(tp, -0.5 + RND() * 1.9, 1.5 + RND() * 0.5)); G.spawned++; }
+    if ((B.musT -= dt) <= 0) { B.musT = 2.1; B.mons.push(drumMon('m', 0.1 + RND() * 0.35, 1.7)); }
+    if ((B.heartT -= dt) <= 0) { B.heartT = 0.65; const a = -0.3 + RND() * 1.6; for (let i = 0; i < 3; i++) B.hearts.push({ dr: { th0: a - BRL.spin * 1.6 - i * 0.12, th: 0, t: -i * 0.08, T: 1.6, r: 0, ring: false, w: BRL.ringW }, x: 0, y: 0, hi: RND() < 0.4 }); }
+  }
+  // his moves
+  const A = B.act, ease = k => k * k * (3 - 2 * k);
+  if (A) { A.t += dt;
+    if (A.k === 'boom' && A.t >= 0.12) { A.k = 'climb'; A.t = 0; A.th0 = B.th; }
+    else if (A.k === 'climb') { B.th = A.th0 + 0.55 * ease(Math.min(1, A.t / 0.22)); if (A.t >= 0.22) { A.k = 'dash'; A.t = 0; A.th0 = B.th; SFX.dash(); burst(G.u, G.y, 14, 1, 50, -30); G.C.dashes++; } }
+    else if (A.k === 'dash') { const k = Math.min(1, A.t / 0.45); B.th = A.th0 + (Math.PI / 2 - 0.7 - A.th0) * k; B.h = D.R * 0.55 * Math.sin(Math.PI * k);
+      if (k >= 1) { A.k = 'dive'; A.t = 0; A.th0 = B.th; B.h = 0; G.C.dives++; const [x, y] = dpos(D, B.th, D.R), rr = 26 * G.up.dive;
+        ring(x, y, 2, rr, 0.4, '#e9fbff', false, 1); ring(x, y, 1, rr * 1.3, 0.5, '#7dffb0', true, 0.5); burst(x, y, 20, 0, 100, -60); SFX.splat();
+        for (const m of B.mons) if (m.mode !== 'dead' && Math.hypot(m.x - x, m.y - y) < rr) { const n0 = G.KH.length; damage(m, 3 * G.dmg, 'dive'); drumHearts(n0); } } }
+    else if (A.k === 'dive') { const k = Math.min(1, A.t / 0.3); B.th = A.th0 + (Math.PI / 2 - A.th0) * ease(k); if (k >= 1) B.act = null; }
+    else if (A.k === 'jump') { const k = Math.min(1, A.t / A.dur); B.h = A.H * Math.sin(Math.PI * k); if (k >= 1) { B.act = null; B.h = 0; } }
+  }
+  if (B.climb) {   // the way out: up the wall while A is held
+    B.climb.t += dt;
+    if (IN.a) { B.th += BRL.climbW * (0.85 + 0.3 * Math.min(1, B.climb.t)) * dt; if (B.th > BRL.wakeA + BRL.late) { const c = G.cyc; G.cyc = null; G.ifr = 0; hurt('lip', 1.5); G.cyc = c; return exitDrum('wake'); } }
+    else return exitDrum(B.th < BRL.wakeA - BRL.early ? 'fat' : 'spit');
+  }
+  const [px, py] = dpos(D, B.th, D.R - B.h); G.u = px; G.y = py;
+  const safe = A && (A.k === 'dash' || A.k === 'dive'), air = A && A.k === 'jump' && B.h > 6;
+  // the boomerang: once round the drum against the stream
+  if (B.boom) { const b = B.boom; b.t += dt; const a = b.a - (Math.PI * 2) * Math.min(1, b.t / 0.7), [bx, by] = dpos(D, a, D.R * 0.9);
+    G.boom = { x: bx, y: by, ang: b.t * 18 };
+    for (const m of B.mons) if (m.mode !== 'dead' && !b.hit.has(m) && Math.hypot(m.x - bx, m.y - by) < 14) { b.hit.add(m); const n0 = G.KH.length; damage(m, 2 * G.dmg * G.up.boom, 'dash'); drumHearts(n0); }
+    if (b.t >= 0.7) { B.boom = null; G.boom = null; } }
+  // the flamethrower: held A through the boomerang, the climb and the dash
+  const fo = G.flameOn; G.flameOn = !!(G.U.flame && IN.a && A && (A.k === 'boom' || A.k === 'climb' || A.k === 'dash'));
+  if (G.flameOn) { const ox = px + Math.cos(B.th - Math.PI / 2) * 6, oy = py + Math.sin(B.th - Math.PI / 2) * 6 - 4; let t = null, bd = 140;
+    for (const m of B.mons) if (m.mode !== 'dead' && m.dr.r > D.R * 0.4) { const d = Math.hypot(m.x - ox, m.y - oy); if (d < bd) { bd = d; t = m; } }
+    const want = t ? Math.atan2(t.y - oy, t.x - ox) : B.th - Math.PI; G.flameDir = fo && G.flameDir !== undefined ? G.flameDir + Math.atan2(Math.sin(want - G.flameDir), Math.cos(want - G.flameDir)) * Math.min(1, dt * 10) : want;
+    G.flameX = ox; G.flameY = oy; flameWork(ox, oy, G.flameDir, B.mons, dt, !fo); }
+  // monsters, mussels, hearts
+  for (const m of B.mons) {
+    if (m.mode === 'dead') { m.t += dt; continue; }
+    if (m.flash > 0) m.flash -= dt; m.ph += dt * 8; drumArrive(m, D, dt);
+    if (m.dr.ring && m.dr.th > Math.PI + 1.3) { m.mode = 'dead'; m.t = 9; continue; }
+    const near = m.dr.r > D.R - 20, dd = Math.hypot(m.x - px, m.y - py), reach = 7 + MON[m.type].w * 0.35;
+    if (dd > reach) continue;
+    if (safe) { const n0 = G.KH.length; kill(m, 'dash'); drumHearts(n0); continue; }
+    if (air) { const n0 = G.KH.length; kill(m, 'jump'); drumHearts(n0); continue; }
+    if (!near || m.hitDone) continue;
+    m.hitDone = true;
+    if (m.type === 'm') { const n0 = G.KH.length; kill(m, 'jump'); drumHearts(n0); hurt('m', 1); catSays('late'); }   // ran into the mussel without D
+    else hurt(m.type === 'f' ? 'f' : 't');
+  }
+  B.mons = B.mons.filter(m => m.mode !== 'dead' || m.t < 0.2);
+  for (const h of B.hearts) {
+    drumArrive(h, D, dt); if (h.got) continue;
+    const hy = h.hi ? -D.R * 0.12 : 0, [hx, hy2] = dpos(D, h.dr.th, h.dr.r + hy);
+    h.x = hx; h.y = hy2;
+    if (h.dr.t > 0 && Math.hypot(hx - px, hy2 - (py - 8)) < 11 + (G.magT > 0 ? G.up.magnet * 1.4 : 0)) { h.got = true; G.C.hearts++; G.greenF += 1; if (G.U.void) G.voidC = Math.min(1, G.voidC + 1 / G.up.voidNeed); if (G.T - (G.blubT || 0) > 0.04) { G.blubT = G.T; tone(520 + Math.random() * 120, 1100, 0.05, 'sine', 0.05); } for (let i = 0; i < 6; i++) { const a = Math.random() * 6.28; part(hx, hy2, Math.cos(a) * 40, Math.sin(a) * 40, 0.4, i % 2 ? 13 : 7, 0.6, 0, true); } }
+    else if (h.dr.ring && h.dr.th > Math.PI + 1.3) { h.got = true; G.C.heartsMissed++; }
+  }
+  B.hearts = B.hearts.filter(h => !h.got);
+  for (const f of B.fly) { f.t += dt; const k = Math.min(1, f.t / 0.5); f.x += (px - f.x) * k * 0.3; f.y += (py - 10 - f.y) * k * 0.3; if (f.t >= 0.5) { f.done = true; G.C.hearts++; G.greenF += 1; } }
+  B.fly = B.fly.filter(f => !f.done);
+  // the stamp: the same rhythm as outside, at what has come out of the eye
+  if ((B.stampT -= dt) <= 0) { let t = null, bd = 150; for (const m of B.mons) if (m.mode !== 'dead' && m.type !== 'm' && m.dr.r > D.R * 0.45) { const d = Math.hypot(m.x - px, m.y - (py - 12)); if (d < bd) { bd = d; t = m; } }
+    if (t) { B.shots.push({ x: px, y: py - 12, tgt: t, ang: 0 }); B.stampT = P.stampRate; } else B.stampT = 0.05; }
+  for (const s of B.shots) { const t = s.tgt; if (!t || t.mode === 'dead') { s.dead = true; continue; }
+    const dx = t.x - s.x, dy = t.y - 3 - s.y, d = Math.hypot(dx, dy) || 1, st = P.stampSpeed * dt; s.ang += dt * 14;
+    if (d < 6 + st) { s.dead = true; const n0 = G.KH.length; damage(t, G.dmg, 'stamp'); for (const o of B.mons) if (o !== t && o.mode !== 'dead' && Math.hypot(o.x - t.x, o.y - t.y) < P.splashR * 1.2) damage(o, G.dmg * P.splash, 'splash'); drumHearts(n0); SFX.splat(); burst(t.x, t.y, 6, 2, 50, -20); }
+    else { s.x += dx / d * st; s.y += dy / d * st; } }
+  B.shots = B.shots.filter(s => !s.dead);
+  if (G.inv > 0) G.inv -= dt; if (G.hurtT > 0) G.hurtT -= dt; if (G.ifr > 0) G.ifr -= dt; if (G.shake > 0) G.shake -= dt; if (G.magT > 0) G.magT -= dt;
+  G.riderOv = { x: sx(px), y: py, ang: B.th - Math.PI / 2, pose: B.climb ? 'brake' : A ? (A.k === 'climb' ? 'brake' : A.k === 'dash' ? 'dash' : A.k === 'dive' ? 'dive' : A.k === 'jump' ? 'air' : 'ride') : 'ride', shield: safe };
+  if (!P.lite && Math.random() < dt * 30) { const a = Math.random() * 6.28; part(D.cx + Math.cos(a) * D.re, D.cy + Math.sin(a) * D.re, Math.cos(a + 0.6) * 120, Math.sin(a + 0.6) * 120, 0.9, 0, 0.8, 0); }   // spray out of the eye
+  updParts(dt);
+  for (const f of G.fx) f.t += dt; G.fx = G.fx.filter(f => f.t < f.life);
+}
+function exitDrum(kind) {
+  const B = G.barrel; B.scene = false; B.ph = 'out'; B.t = 0; B.kind = kind; B.flash = 0.45; B.K = 1.8;
+  G.riderOv = null; G.flameOn = false; G.boom = null; B.mons = []; B.hearts = []; B.shots = []; for (const f of B.fly) { G.C.hearts++; G.greenF += 1; } B.fly = [];
+  G.u = B.saveU; G.y = ysAt(G.u, G.S); G.cyc = null; G.dashT = G.diveT = 0; G.air = false; G.ramp = null; G.vy = 0;
+  logE({ k: 'barrel', what: kind });
+  if (kind === 'spit') {   // the barrel spits him out: a giant leap into the sky, then he falls (or glides) back onto a normal wave
+    G.air = true; G.airT = 0; G.airTop = G.y; G.jumpBusy = true; G.vy = -520; G.qAir = 25; G.inv = Math.max(G.inv, 1.6); G.C.spits = (G.C.spits || 0) + 1; combo();
+    for (let i = 0; i < 10; i++) G.KH.push({ u: G.u + i * 6, y: G.y - 20, vu: 50 + i * 12, vy: -260 - i * 10 });
+    G.HL.push({ w: G.S + G.u + 240, h: -9, got: false, ph: 0, crystal: true });
+    burst(G.u, G.y, 50, 0, 180, -160); burst(G.u, G.y, 24, 9, 120, -120, true); G.shake = Math.max(G.shake, 0.35);
+    float(G.u + 20, G.y - 110, 'SPIT!', '#bff8ff', 16); tone(330, 990, 0.35, 'triangle', 0.18); noiseBurst(0.6, 'highpass', 1200, 0.35);
+  } else { G.inv = Math.max(G.inv, 0.8); float(G.u, G.y - 34, kind === 'wake' ? 'into the wake!' : 'the wave backs off', kind === 'wake' ? '#ff9a9a' : '#e9fbff', 11); burst(G.u, G.y - 6, 20, 0, 90, -60); }
+}
+// ---- drawing: the barrel in the world (the herald, the curtain, PULL IN) and the drum itself ----
+function drawBarrelWorld() {
+  const B = G.barrel; if (!B || B.scene) return;
+  const x = sx(G.u), y = G.y;
+  if (B.ph === 'herald' && B.t > 2.9) {   // the curtain: the lip thrown over him, down into the water ahead
+    const k = Math.min(1, (B.t - 2.9) / 0.35), xl = Math.max(-20, sx(0)), x2 = sx(G.u + 50), yT = Y_TOP - 6;
+    ctx.globalAlpha = 0.25 * k; ctx.fillStyle = '#02121a'; ctx.beginPath(); ctx.moveTo(xl, yT + 20); ctx.quadraticCurveTo((xl + x2) / 2, yT - 30, x2, ysAt(G.u + 50, G.S)); ctx.lineTo(xl, ysAt(Math.max(3, G.u - 40), G.S) + 10); ctx.closePath(); ctx.fill();   // the dark pocket under it
+    ctx.globalAlpha = 0.9 * k; const g = ctx.createLinearGradient(xl, yT, x2, y); g.addColorStop(0, '#ffffff'); g.addColorStop(0.5, LOOK.lip); g.addColorStop(1, LOOK.curl);
+    ctx.strokeStyle = g; ctx.lineWidth = 7 + 3 * Math.sin(G.T * 9); ctx.beginPath(); ctx.moveTo(xl, yT + 12); ctx.quadraticCurveTo((xl + x2) / 2, yT - 34, x2, ysAt(G.u + 50, G.S) - 2); ctx.stroke();
+    ctx.globalAlpha = 1;
+    if (!P.lite && Math.random() < 0.6) part(G.u + 50 + (Math.random() - 0.5) * 10, ysAt(G.u + 50, G.S), (Math.random() - 0.5) * 80, -60 - Math.random() * 60, 0.5, 0, 1, 300);
+  }
+  if (B.ph === 'herald' && B.t >= BRL.winA && B.t < BRL.winB) {   // the sign: PULL IN · HOLD A
+    const k = (B.t - BRL.winA) / (BRL.winB - BRL.winA), held = B.hold !== undefined ? Math.min(1, B.hold / BRL.hold) : 0, sc = 1 + 0.12 * Math.sin(G.T * 14);
+    ctx.save(); ctx.translate(x, y - 58); ctx.scale(sc, sc);
+    ctx.fillStyle = 'rgba(4,30,40,.82)'; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(-34, -17, 68, 30, 7) : ctx.rect(-34, -17, 68, 30); ctx.fill();
+    ctx.strokeStyle = '#bff8ff'; ctx.lineWidth = 1.2; ctx.stroke();
+    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-30, 10); ctx.lineTo(-30 + 60 * (1 - k), 10); ctx.stroke();
+    if (held > 0) { ctx.strokeStyle = '#7dffb0'; ctx.beginPath(); ctx.moveTo(-30, 7); ctx.lineTo(-30 + 60 * held, 7); ctx.stroke(); }
+    ctx.textAlign = 'center'; ctx.fillStyle = '#bff8ff'; ctx.font = '700 11px ' + FONT; ctx.fillText('PULL IN', 0, -4);
+    ctx.fillStyle = '#fff2a0'; ctx.font = '700 8px ' + FONT; ctx.fillText('HOLD A', 0, 5);
+    ctx.restore();
+  }
+  if (B.ph === 'enter') {   // the tube closes around him
+    const k = Math.min(1, B.t / 0.45), r = (1 - k) * Math.hypot(W, H);
+    ctx.save(); ctx.fillStyle = LOOK.face[2]; ctx.globalAlpha = 0.95; ctx.beginPath(); ctx.rect(-20, G.camY - VOFF() - 20, W + 40, H + 40); ctx.arc(x, y - 10, Math.max(4, r), 0, Math.PI * 2, true); ctx.fill('evenodd'); ctx.restore();
+  }
+  if (B.ph === 'out' && B.flash > 0) { ctx.globalAlpha = Math.max(0, B.flash - B.t) * 1.6; R(-20, G.camY - VOFF() - 20, W + 40, H + 40, '#ffffff'); ctx.globalAlpha = 1; }
+}
+function drawDrum() {
+  const B = G.barrel, D = drum(), t = G.T, cx = sx(D.cx), cy = D.cy, Rr = D.R, re = D.re, big = Math.hypot(W, H) * 0.75, top = G.camY - VOFF(), lk = LOOK;
+  { const g = ctx.createRadialGradient(cx, cy, re * 0.5, cx, cy, big); g.addColorStop(0, '#ffffff'); g.addColorStop(0.05, lk.face[0]); g.addColorStop(0.22, lk.face[1]); g.addColorStop(0.5, lk.face[2]); g.addColorStop(1, lk.deep || lk.face[3]); ctx.fillStyle = g; ctx.fillRect(-20, top - 20, W + 40, H + 40); }
+  if (B.open > 0) {   // the drum opens top right: sky behind
+    const a0 = -Math.PI / 4, hw = 1.15 * B.open, sg = ctx.createLinearGradient(0, top, 0, top + H); sg.addColorStop(0, lk.sky[0]); sg.addColorStop(1, lk.sky[lk.sky.length - 1] || lk.sky[0]);
+    ctx.fillStyle = sg; ctx.beginPath(); ctx.moveTo(cx, cy); for (let i = 0; i <= 24; i++) { const a = a0 - hw + 2 * hw * i / 24, wob = 1 + 0.05 * Math.sin(i * 1.7 + t * 4); ctx.lineTo(cx + Math.cos(a) * big * wob, cy + Math.sin(a) * big * wob); } ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,.75)'; for (let i = 0; i < 4; i++) { const a = a0 + (i - 1.5) * 0.35 * B.open, r = Rr * (0.9 + 0.25 * i); E(cx + Math.cos(a) * r, cy + Math.sin(a) * r, 14, 4, 'rgba(255,255,255,.7)'); }
+  }
+  ctx.save();
+  if (B.open > 0) { const a0 = -Math.PI / 4, hw = 1.15 * B.open; ctx.beginPath(); ctx.rect(-20, top - 20, W + 40, H + 40); ctx.moveTo(cx, cy); for (let i = 0; i <= 24; i++) { const a = a0 + hw - 2 * hw * i / 24; ctx.lineTo(cx + Math.cos(a) * big, cy + Math.sin(a) * big); } ctx.closePath(); ctx.clip('evenodd'); }   // where the sky shows, the water is gone
+  // the spin: spiral streaks and foam flecks running out of the eye
+  const N = P.lite ? 14 : 28;
+  for (let i = 0; i < N; i++) { const a0 = i * 2 * Math.PI / N + t * 0.9; ctx.strokeStyle = 'rgba(255,255,255,' + (i % 3 ? 0.08 : 0.16) + ')'; ctx.lineWidth = 0.8 + (i % 2) * 0.6; ctx.beginPath();
+    for (let j = 0; j <= 12; j++) { const r = re * 1.4 * Math.pow(big / (re * 1.4), j / 12), a = a0 + 0.9 * Math.log(r / re); const X = cx + Math.cos(a) * r, Y = cy + Math.sin(a) * r; j ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); } ctx.stroke(); }
+  if (!P.lite) { ctx.fillStyle = 'rgba(255,255,255,.75)'; for (let i = 0; i < 70; i++) { const f = (i * 0.137 + t * 0.55) % 1, r = re * Math.exp(f * Math.log(big / re)), a = i * 2.4 + t * 0.9 + 0.9 * Math.log(r / re), z = 0.4 + 2.2 * f; ctx.globalAlpha = 0.25 + 0.5 * (1 - f); ctx.fillRect(cx + Math.cos(a) * r, cy + Math.sin(a) * r, z, z); } ctx.globalAlpha = 1; }
+  // the wall he rides: a band of foam
+  ctx.strokeStyle = 'rgba(255,255,255,.28)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(cx, cy, Rr + 4, 0, Math.PI * 2); ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.arc(cx, cy, Rr + 1, 0, Math.PI * 2); ctx.stroke();
+  if (!P.lite) for (let i = 0; i < 26; i++) { const a = i * 0.2417 * Math.PI * 2 + t * BRL.ringW, r = Rr + 3 + 2 * Math.sin(i * 1.3 + t * 5); E(cx + Math.cos(a) * r, cy + Math.sin(a) * r, 2.2 + (i % 3), 1.4, 'rgba(255,255,255,.55)'); }
+  ctx.restore();
+  // the eye: the light at the end of the tube
+  ctx.globalCompositeOperation = 'lighter'; { const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, re * 3); g.addColorStop(0, 'rgba(255,255,255,' + (0.85 + 0.1 * Math.sin(t * 7)) + ')'); g.addColorStop(1, 'rgba(200,255,250,0)'); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, re * 3, 0, 7); ctx.fill(); } ctx.globalCompositeOperation = 'source-over';
+  // the wake top left, the target of the way out
+  if (B.ph === 'sky' || B.climb) { const a = BRL.wakeA, pulse = 0.6 + 0.4 * Math.sin(t * 10);
+    ctx.strokeStyle = 'rgba(255,226,106,' + pulse + ')'; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(cx, cy, Rr + 2, a - BRL.early, a + BRL.late); ctx.stroke();
+    for (let i = 0; i < 7; i++) { const aa = a - 0.15 + i * 0.05, r = Rr + 6 + 3 * Math.sin(i + t * 9); E(cx + Math.cos(aa) * r, cy + Math.sin(aa) * r, 3.5, 2.5, '#ffffff'); }
+    const [wx, wy] = [cx + Math.cos(a) * (Rr - 20), cy + Math.sin(a) * (Rr - 20)]; ctx.textAlign = 'center'; ctx.font = '700 7px ' + FONT; ctx.lineWidth = 2; ctx.strokeStyle = '#3a2000'; ctx.strokeText('THE WAKE', wx, wy); ctx.fillStyle = '#fff2a0'; ctx.fillText('THE WAKE', wx, wy); }
+  // hearts, monsters, shots
+  for (const h of B.hearts) { if (h.dr.t < 0) continue; const k = 0.35 + 0.65 * Math.pow(h.dr.r / Rr, 1.3); ctx.drawImage(HEART_SPR, sx(h.x) - 3.5 * k, h.y - 3.2 * k, 7 * k, 6.4 * k); }
+  for (const f of B.fly) ctx.drawImage(HEART_SPR, sx(f.x) - 3.5, f.y - 3.2, 7, 6.4);
+  for (const m of B.mons) {
+    const s = SPR[m.type]; if (!s) continue; const fr = (Math.floor(m.ph / 3) & 1), img = m.flash > 0 ? s.flash[fr] : s.img[fr], k = (0.3 + 0.7 * Math.pow(Math.min(1, m.dr.r / Rr), 1.4)) * (m.type === 'm' ? 1.15 : 1);
+    ctx.save(); ctx.translate(sx(m.x), m.y); ctx.rotate(m.dr.ring ? m.dr.th - Math.PI / 2 : m.dr.th + Math.PI / 2 - 0.5); ctx.scale(-k, k);
+    if (m.mode === 'dead') ctx.globalAlpha = Math.max(0, 1 - m.t * 5);
+    ctx.drawImage(img, -s.ox, -s.oy, s.w, s.h); ctx.restore(); ctx.globalAlpha = 1;
+    if (m.burn > 0 && m.mode !== 'dead') burnFlames(sx(m.x), m.y - 4 * k, k);
+  }
+  for (const s of B.shots) { ctx.save(); ctx.translate(sx(s.x), s.y); ctx.rotate(s.ang); ctx.drawImage(STAMP_SPR, -3, -3.5, 6, 7); ctx.restore(); }
+  drawBoom();
+  drawRider();
+  if (B.ph === 'sky' && !B.climb) { const [x, y] = [G.riderOv ? G.riderOv.x : cx, G.y - 40], sc = 1 + 0.12 * Math.sin(t * 14); ctx.save(); ctx.translate(x, y); ctx.scale(sc, sc); ctx.textAlign = 'center'; ctx.font = '700 14px ' + FONT; ctx.lineWidth = 3; ctx.strokeStyle = '#0a2630'; ctx.strokeText('HOLD A', 0, 0); ctx.fillStyle = '#fff2a0'; ctx.fillText('HOLD A', 0, 0); ctx.font = '600 6.5px ' + FONT; ctx.lineWidth = 2; ctx.strokeText('let go at the wake', 0, 10); ctx.fillStyle = '#ffffff'; ctx.fillText('let go at the wake', 0, 10); ctx.restore(); }
+  if (B.ph === 'in' && B.t < 2.2) { ctx.globalAlpha = Math.min(1, (2.2 - B.t) * 1.5); ctx.textAlign = 'center'; ctx.font = '700 15px ' + FONT; ctx.lineWidth = 3; ctx.strokeStyle = '#06303a'; ctx.strokeText('BARRELED!', cx, top + 34); ctx.fillStyle = '#bff8ff'; ctx.fillText('BARRELED!', cx, top + 34); ctx.font = '600 7px ' + FONT; ctx.lineWidth = 2; ctx.strokeText('A — leap and dive · D — jump (off a mussel: big jump)', cx, top + 46); ctx.fillStyle = '#ffffff'; ctx.fillText('A — leap and dive · D — jump (off a mussel: big jump)', cx, top + 46); ctx.globalAlpha = 1; }
+  if (B.flash > 0) { ctx.globalAlpha = Math.min(1, B.flash * 2); R(-20, top - 20, W + 40, H + 40, '#ffffff'); ctx.globalAlpha = 1; }
 }
 function updCat(dt) {
   const k = G.kat; if (k.mode === 'away') return;
@@ -1541,8 +1852,10 @@ function update(dt) {
   if (G.trick) G.trick.t += dt;
   if (G.S >= G.endS) { G.won = true; G.wonT = 0; SFX.fanfare(G.bossDown || G.eliteDown); celebrate(); return; }
   G.T += dt;
+  if (G.barrel && G.barrel.scene) { updDrum(dt); return; }   // v064: inside the barrel the wave outside stands still
   const n = Math.ceil(dt / (1 / 120));
   for (let i = 0; i < n; i++) stepRider(dt / n);
+  if (!G.cyc && !G.air && G.dashT <= 0 && G.diveT <= 0 && !G.ramp) G.restU = G.restU === undefined ? G.u : G.restU + (G.u - G.restU) * Math.min(1, dt * 1.5);   // v064: where he rides when he does nothing — the poison cloud rains there
   const vn = vNorm();
   for (const h of G.KH) {   // v053: the kill hearts fly up and to the right, then land on the wave and ride it
     h.vy += P.g * 0.55 * dt; h.u += h.vu * dt; h.y += h.vy * dt;
@@ -1567,6 +1880,7 @@ function update(dt) {
   if (G.wallEv && G.U.cycle && !G.cyc) { if ((G.planN = (G.planN || 0) + 1) % 3 === 0 || !G.plan) G.plan = cyclePlan(); } else G.plan = null;
   if (G.wallEv && !G.wallEv.thrown) { const f = wallFront(G.wallEv); if ((G.plan && G.plan.ok) || G.cyc || (f < 1e8 && f - G.u < 110)) { G.wallEv.thrown = true; throwFollowers(); } }
   updCycle(dt);
+  updBarrel(dt);
   if (G.wallEv) {
     const e = G.wallEv, L = e.L; e.t += dt;
     if (L.winOpen === undefined && !G.cyc) { const tw = wallTiming(e); e.climbT = tw.ct; }   // keep the climb in step with his tempo until the window opens
@@ -1620,9 +1934,10 @@ function update(dt) {
   G.trail = G.trail.filter(p => p.t < 0.8);
   const wT = G.u - (0.46 - 0.24 * heightNorm() + 0.04 * vn) * 480 - (W - 480) * 0.3, yT = Math.max(0, Math.min(34, G.y - 190));
   const wR = G.u - 0.3 * W, yR = G.y - (G.lift || 0) - 12 - H / 2, cm = P.cam === 'today' ? 0 : P.cam === 'mid' ? 0.5 : 1;   // v054: on Robinson — 30 % from the left (look-ahead), centred in height   // v053: three camera modes
-  const want = wT + (wR - wT) * cm;
+  const brlCam = G.barrel && !G.barrel.scene && G.barrel.ph !== 'out';   // v064: the barrel's herald — the camera shows the curl
+  const want = brlCam ? Math.min(wT + (wR - wT) * cm, -30) : wT + (wR - wT) * cm;
   G.camU += (want - G.camU) * Math.min(1, 3 * dt);
-  const wantY = yT + (yR - yT) * cm;
+  const wantY = brlCam ? Math.min(yT + (yR - yT) * cm, Y_TOP - 70) : yT + (yR - yT) * cm;
   G.camY += (wantY - G.camY) * Math.min(1, 4.5 * dt);
   const abs = 60 + G.v;
   G.farX += abs * 0.035 * dt; G.midX += abs * 0.22 * dt; G.nearX += abs * 0.9 * dt;
@@ -1828,7 +2143,7 @@ function drawLip() {   // v052: a rolling, foaming lip — whitewater spilling d
   for (let x = x1; x <= xl; x += step) x === x1 ? ctx.moveTo(x, top(x) - 0.4) : ctx.lineTo(x, top(x) - 0.4);
   ctx.stroke();
   // the curl: thick at the crest, thrown forward over the face, thin at the tip, with spray — v053: a bit bigger, growing with the stage
-  const ls = 1.15 + Math.min(0.6, 0.06 * (ST.n - 1)); ctx.save(); ctx.translate(xl, Y_TOP); ctx.scale(ls, ls); ctx.translate(-xl, -Y_TOP);
+  const ls = (1.15 + Math.min(0.6, 0.06 * (ST.n - 1))) * brlLipK(); ctx.save(); ctx.translate(xl, Y_TOP); ctx.scale(ls, ls); ctx.translate(-xl, -Y_TOP);
   const ph = Math.sin(t * 2.6), tipX = xl + 24 + 2 * ph, tipY = Y_TOP + 15 + 1.5 * ph;
   { const cg = ctx.createLinearGradient(xl - 10, Y_TOP - 10, tipX, tipY); cg.addColorStop(0, '#ffffff'); cg.addColorStop(0.45, lk.lip); cg.addColorStop(1, lk.curl); ctx.fillStyle = cg; }
   ctx.beginPath(); ctx.moveTo(xl - 16, Y_TOP + 4);
@@ -1842,7 +2157,7 @@ function drawLip() {   // v052: a rolling, foaming lip — whitewater spilling d
   ctx.fillStyle = '#ffffff';   // v053: spray blown forward off the curl
   for (const p of G.spray) { ctx.globalAlpha = 0.85 * (1 - p.t / p.life); ctx.beginPath(); ctx.arc(sx(p.u), p.y, p.r * (1 + p.t), 0, 7); ctx.fill(); }
   ctx.globalAlpha = 1;
-  if (!P.lite) { const ls2 = 1.15 + Math.min(0.6, 0.06 * (ST.n - 1)); for (let j = 0; j < 6 + ST.n; j++) { const a = (j * 0.61 + t * 0.9) % 1, x = xl - 6 + Math.sin(j * 2.1 + t * 3) * 10 * ls2, y = Y_TOP - 4 * ls2 + a * 20 * ls2; ctx.globalAlpha = 0.6 * (1 - a); E(x, y, (2 + (j % 3)) * ls2 * (1 - a * 0.5), (1.6 + (j % 2)) * ls2, '#ffffff'); } ctx.globalAlpha = 1; }   // foam boiling round the crest
+  if (!P.lite) { const ls2 = (1.15 + Math.min(0.6, 0.06 * (ST.n - 1))) * brlLipK(); for (let j = 0; j < 6 + ST.n; j++) { const a = (j * 0.61 + t * 0.9) % 1, x = xl - 6 + Math.sin(j * 2.1 + t * 3) * 10 * ls2, y = Y_TOP - 4 * ls2 + a * 20 * ls2; ctx.globalAlpha = 0.6 * (1 - a); E(x, y, (2 + (j % 3)) * ls2 * (1 - a * 0.5), (1.6 + (j % 2)) * ls2, '#ffffff'); } ctx.globalAlpha = 1; }   // foam boiling round the crest
 }
 function drawTrail() {
   ctx.fillStyle = '#ffffff';
@@ -1882,6 +2197,7 @@ function drawMonsters() {
   ctx.globalAlpha = 1;
   for (const m of G.mons) if ((m.mode === 'come' || (m.mode === 'dead' && m.t < 0.15)) && m.type !== 'u' && m.type !== 'f' && m.type !== 'B' && m.type !== 'c') { ctx.globalAlpha = m.ramped && m.mode === 'come' ? 0.6 : 1; drawMon(m); }
   ctx.globalAlpha = 1;
+  for (const m of G.mons) if (m.burn > 0 && m.mode !== 'dead') { const [x, y] = mPos(m); burnFlames(sx(x), y - 4, 1); }   // v064: what the flame has caught
 }
 function drawFlyers() {
   for (const m of G.mons) if (m.type === 'f' && (m.mode === 'come' || m.mode === 'hover' || m.mode === 'glide')) drawMon(m);
@@ -1898,56 +2214,75 @@ function drawMagnet() {   // v052: the magnet's reach around him while it works
   ctx.beginPath(); ctx.ellipse(x, y, R + 5, R + 12, 0, 0, 7); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
   txt('🧲 ' + Math.ceil(G.magT) + 's', x, y - R - 15, '#ffb0b0', 'center', 6.5);
 }
+const SH = { a: document.createElement('canvas'), b: document.createElement('canvas') };
+function drawShield(body, x, y) {   // v064: a thin white-turquoise outline round his body (board and cat included) while the A leap and the dive make him untouchable
+  const S = 76, px = Math.ceil(S * SC); if (SH.a.width !== px) { SH.a.width = SH.a.height = SH.b.width = SH.b.height = px; }
+  const a = SH.a.getContext('2d'), b = SH.b.getContext('2d');
+  a.setTransform(1, 0, 0, 1, 0, 0); a.globalAlpha = 1; a.clearRect(0, 0, px, px); a.setTransform(SC, 0, 0, SC, px / 2, px / 2);
+  const keep = ctx; ctx = a; try { body(0, 0); } finally { ctx = keep; }
+  b.setTransform(1, 0, 0, 1, 0, 0); b.globalCompositeOperation = 'source-over'; b.clearRect(0, 0, px, px); b.drawImage(SH.a, 0, 0); b.globalCompositeOperation = 'source-in'; b.fillStyle = '#b4fff2'; b.fillRect(0, 0, px, px); b.globalCompositeOperation = 'source-over';
+  const pulse = 0.5 + 0.5 * Math.sin(G.T * 12), x0 = x - S / 2, y0 = y - S / 2;
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (const [r, al] of [[3.4, 0.18 + 0.08 * pulse], [2.2, 0.3 + 0.1 * pulse], [1.2, 0.55 + 0.15 * pulse]]) { ctx.globalAlpha = al; for (let i = 0; i < 8; i++) { const an = i * Math.PI / 4; ctx.drawImage(SH.b, x0 + Math.cos(an) * r, y0 + Math.sin(an) * r, S, S); } }
+  ctx.restore();
+}
 function drawRider() {
   drawMagnet(); drawGlider();
-  if (G.flameOn) { const x = sx(G.u) + 6, y = G.y - 10; ctx.save(); ctx.translate(x, y); ctx.rotate(G.flameDir || 0); const g = ctx.createRadialGradient(40, 0, 4, 40, 0, 60); g.addColorStop(0, 'rgba(255,200,80,.5)'); g.addColorStop(1, 'rgba(255,60,160,0)'); ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(52, 0, 58, 20, 0, 0, 7); ctx.fill(); ctx.restore(); }
-  const x = sx(G.u), y = G.y - (G.lift || 0);
+  if (G.flameOn) drawFlame(sx(G.flameX), G.flameY, G.flameDir || 0, G.flameT0);   // v064: the new fire
+  const ov = G.riderOv, x = ov ? ov.x : sx(G.u), y = ov ? ov.y : G.y - (G.lift || 0);   // v064: in the barrel the drum places him
   let ang = Math.atan(slopeAt(G.u, G.S)) - (G.ramp ? 0.35 : 0);
   if (G.air) ang = Math.atan2(G.vy, Math.max(60, G.v * 0.6)) * 0.6;
+  if (ov) ang = ov.ang;
   const st = inputState();
   const tr = G.air && G.trick ? G.trick.tier : -1;
-  const pose = (G.stumble > 0 || G.wipe > 0) ? 'stumble' : G.diveT > 0 ? 'dive' : G.dashT > 0 ? 'dash' : tr === 1 ? 'grab' : G.air ? 'air' : st === 'brake' ? 'brake' : G.boostM > 0 ? 'fast' : 'ride';
-  ctx.save();
-  ctx.translate(x, y); ctx.scale(1.2, 1.2);
-  ctx.rotate(ang + (pose === 'stumble' ? Math.sin(G.T * 30) * 0.15 + (G.wipe > 0 ? 0.6 : 0) : 0));
-  if (tr === 2) { const k = Math.min(1, G.trick.t / (G.trick.dur * 0.85)), e = k * k * (3 - 2 * k); ctx.translate(0, -9); ctx.rotate(-Math.PI * 2 * e); ctx.translate(0, 9); }   // backflip
-  if (G.inv > 0) ctx.globalAlpha = 0.5 + 0.5 * Math.sin(G.T * 40);
-  if (G.hurtT > 0 && Math.sin(G.T * 60) > 0) ctx.globalAlpha *= 0.4;
-  if (pose === 'dive') ctx.globalAlpha *= 0.55;
-  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  // the board: a plank of driftwood with a red stripe
-  ctx.fillStyle = '#e3c590'; ctx.strokeStyle = '#a8834f'; ctx.lineWidth = 0.35;
-  ctx.beginPath(); ctx.moveTo(-9.5, -1); ctx.quadraticCurveTo(-9.5, -2.3, -7.5, -2.3); ctx.lineTo(8, -2.3); ctx.quadraticCurveTo(10.6, -2.1, 10.2, -1); ctx.quadraticCurveTo(9.6, 0, 7.5, 0); ctx.lineTo(-8, 0); ctx.quadraticCurveTo(-9.5, 0, -9.5, -1); ctx.fill(); ctx.stroke();
-  ctx.strokeStyle = ROB.tie; ctx.lineWidth = 0.45; ctx.beginPath(); ctx.moveTo(-7.5, -1.1); ctx.lineTo(8.6, -1.1); ctx.stroke();
-  if (CFG.cat && G.kat.mode === 'back') { ctx.save(); ctx.scale(0.85, 0.85); catShape(-12.6, -4.4, 1, 'fear', G.kat.wet > 0); ctx.restore(); }   // soaked, claws in the back of the board
-  if (pose !== 'dash' && pose !== 'dive') ctx.rotate(-ang * 0.45);
-  if (pose === 'dash' || pose === 'dive') {
-    stroke(ROB.pants, 2.2, [[-7.5, -3.4], [-3, -3.8]]);
-    ctx.fillStyle = ROB.shirt; ctx.beginPath(); ctx.ellipse(1, -4, 4.2, 1.9, -0.05, 0, 7); ctx.fill();
-    stroke(ROB.tie, 0.8, [[2.2, -3], [4, -2.6]]);
-    stroke(ROB.skin, 1.3, [[4, -4.2], [8.4, -2.8]]);
-    head(6.6, -5.6, 0.9); drawCat(-1.6, -7.2, 0.85);
-  } else {
-    const crouch = pose === 'fast' ? 3 : pose === 'air' ? 4 : pose === 'grab' ? 5.5 : pose === 'brake' ? 1 : 2;
-    const lean = pose === 'fast' ? 2 : pose === 'brake' ? -2 : pose === 'grab' ? 2.5 : 0;
-    const legH = 7.5 - crouch, hip = -2.2 - legH, ty = hip - 7;
-    for (const s of [-1, 1]) {   // legs: grey trousers to the knee, bare shins
-      const kx = s * 2.6 + lean * 0.35, ky = hip + legH * 0.5;
-      stroke(ROB.pants, 2.3, [[s * 1.3 + lean * 0.7, hip], [kx, ky]]);
-      stroke(ROB.skin, 1.5, [[kx, ky], [s * 3.2, -2.3]]);
+  const pose = ov ? ov.pose : (G.stumble > 0 || G.wipe > 0) ? 'stumble' : G.diveT > 0 ? 'dive' : G.dashT > 0 ? 'dash' : tr === 1 ? 'grab' : G.air ? 'air' : st === 'brake' ? 'brake' : G.boostM > 0 ? 'fast' : 'ride';
+  const shield = ov ? ov.shield : !!(G.cyc && G.cyc.ph === 'dash');   // v064: the A leap and dive: untouchable, and now you can see it
+  const body = (bx, by) => {
+    ctx.save();
+    ctx.translate(bx, by); ctx.scale(1.2, 1.2);
+    ctx.rotate(ang + (pose === 'stumble' ? Math.sin(G.T * 30) * 0.15 + (G.wipe > 0 ? 0.6 : 0) : 0));
+    if (tr === 2) { const k = Math.min(1, G.trick.t / (G.trick.dur * 0.85)), e = k * k * (3 - 2 * k); ctx.translate(0, -9); ctx.rotate(-Math.PI * 2 * e); ctx.translate(0, 9); }   // backflip
+    if (G.inv > 0) ctx.globalAlpha = 0.5 + 0.5 * Math.sin(G.T * 40);
+    if (G.hurtT > 0 && Math.sin(G.T * 60) > 0) ctx.globalAlpha *= 0.4;
+    if (pose === 'dive') ctx.globalAlpha *= 0.55;
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    // the board: a plank of driftwood with a red stripe
+    ctx.fillStyle = '#e3c590'; ctx.strokeStyle = '#a8834f'; ctx.lineWidth = 0.35;
+    ctx.beginPath(); ctx.moveTo(-9.5, -1); ctx.quadraticCurveTo(-9.5, -2.3, -7.5, -2.3); ctx.lineTo(8, -2.3); ctx.quadraticCurveTo(10.6, -2.1, 10.2, -1); ctx.quadraticCurveTo(9.6, 0, 7.5, 0); ctx.lineTo(-8, 0); ctx.quadraticCurveTo(-9.5, 0, -9.5, -1); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = ROB.tie; ctx.lineWidth = 0.45; ctx.beginPath(); ctx.moveTo(-7.5, -1.1); ctx.lineTo(8.6, -1.1); ctx.stroke();
+    if (CFG.cat && G.kat.mode === 'back') { ctx.save(); ctx.scale(0.85, 0.85); catShape(-12.6, -4.4, 1, 'fear', G.kat.wet > 0); ctx.restore(); }   // soaked, claws in the back of the board
+    if (pose !== 'dash' && pose !== 'dive') ctx.rotate(-ang * 0.45);
+    if (pose === 'dash' || pose === 'dive') {
+      stroke(ROB.pants, 2.2, [[-7.5, -3.4], [-3, -3.8]]);
+      ctx.fillStyle = ROB.shirt; ctx.beginPath(); ctx.ellipse(1, -4, 4.2, 1.9, -0.05, 0, 7); ctx.fill();
+      stroke(ROB.tie, 0.8, [[2.2, -3], [4, -2.6]]);
+      stroke(ROB.skin, 1.3, [[4, -4.2], [8.4, -2.8]]);
+      head(6.6, -5.6, 0.9); drawCat(-1.6, -7.2, 0.85);
+    } else {
+      const crouch = pose === 'fast' ? 3 : pose === 'air' ? 4 : pose === 'grab' ? 5.5 : pose === 'brake' ? 1 : 2;
+      const lean = pose === 'fast' ? 2 : pose === 'brake' ? -2 : pose === 'grab' ? 2.5 : 0;
+      const legH = 7.5 - crouch, hip = -2.2 - legH, ty = hip - 7;
+      for (const s of [-1, 1]) {   // legs: grey trousers to the knee, bare shins
+        const kx = s * 2.6 + lean * 0.35, ky = hip + legH * 0.5;
+        stroke(ROB.pants, 2.3, [[s * 1.3 + lean * 0.7, hip], [kx, ky]]);
+        stroke(ROB.skin, 1.5, [[kx, ky], [s * 3.2, -2.3]]);
+      }
+      ctx.fillStyle = ROB.shirt; ctx.beginPath();
+      ctx.moveTo(-3 + lean, ty); ctx.lineTo(3 + lean, ty); ctx.lineTo(3.3 + lean * 0.8, hip + 0.6); ctx.lineTo(1.4 + lean * 0.8, hip + 1.1); ctx.lineTo(-0.2 + lean * 0.8, hip + 0.5); ctx.lineTo(-3.3 + lean * 0.8, hip + 0.9); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = ROB.shade; ctx.lineWidth = 0.4; ctx.beginPath(); ctx.moveTo(-2.6 + lean * 0.9, hip - 0.4); ctx.lineTo(2.7 + lean * 0.9, hip - 0.6); ctx.stroke();
+      ctx.fillStyle = ROB.tie; ctx.beginPath(); ctx.moveTo(lean + 0.1, ty + 0.4); ctx.lineTo(lean + 0.9, ty + 0.9); ctx.lineTo(lean + 0.7, ty + 5); ctx.lineTo(lean + 0.2, ty + 5.7); ctx.lineTo(lean - 0.3, ty + 5); ctx.lineTo(lean - 0.5, ty + 0.9); ctx.closePath(); ctx.fill();
+      const hands = pose === 'grab' ? [[-6.4, ty - 1], [8.6, -2.8]] : pose === 'brake' ? [[-6, ty - 2], [5.6, ty - 3]] : pose === 'air' ? [[-6.2, ty + 1], [5.8, ty - 1.4]] : pose === 'fast' ? [[-5.4, ty + 4], [6.6, ty + 2.2]] : [[-6, ty + 3], [5.8, ty + 2]];
+      stroke(ROB.skin, 1.35, [[-2.6 + lean, ty + 1], hands[0]]);
+      stroke(ROB.skin, 1.35, [[2.6 + lean, ty + 1], hands[1]]);
+      const hx = 0.4 + lean + (pose === 'fast' ? 1 : 0);
+      head(hx, ty - 2.8, 1);
+      drawCat(hx - 2.4, ty - 6.6, 1);
     }
-    ctx.fillStyle = ROB.shirt; ctx.beginPath();
-    ctx.moveTo(-3 + lean, ty); ctx.lineTo(3 + lean, ty); ctx.lineTo(3.3 + lean * 0.8, hip + 0.6); ctx.lineTo(1.4 + lean * 0.8, hip + 1.1); ctx.lineTo(-0.2 + lean * 0.8, hip + 0.5); ctx.lineTo(-3.3 + lean * 0.8, hip + 0.9); ctx.closePath(); ctx.fill();
-    ctx.strokeStyle = ROB.shade; ctx.lineWidth = 0.4; ctx.beginPath(); ctx.moveTo(-2.6 + lean * 0.9, hip - 0.4); ctx.lineTo(2.7 + lean * 0.9, hip - 0.6); ctx.stroke();
-    ctx.fillStyle = ROB.tie; ctx.beginPath(); ctx.moveTo(lean + 0.1, ty + 0.4); ctx.lineTo(lean + 0.9, ty + 0.9); ctx.lineTo(lean + 0.7, ty + 5); ctx.lineTo(lean + 0.2, ty + 5.7); ctx.lineTo(lean - 0.3, ty + 5); ctx.lineTo(lean - 0.5, ty + 0.9); ctx.closePath(); ctx.fill();
-    const hands = pose === 'grab' ? [[-6.4, ty - 1], [8.6, -2.8]] : pose === 'brake' ? [[-6, ty - 2], [5.6, ty - 3]] : pose === 'air' ? [[-6.2, ty + 1], [5.8, ty - 1.4]] : pose === 'fast' ? [[-5.4, ty + 4], [6.6, ty + 2.2]] : [[-6, ty + 3], [5.8, ty + 2]];
-    stroke(ROB.skin, 1.35, [[-2.6 + lean, ty + 1], hands[0]]);
-    stroke(ROB.skin, 1.35, [[2.6 + lean, ty + 1], hands[1]]);
-    const hx = 0.4 + lean + (pose === 'fast' ? 1 : 0);
-    head(hx, ty - 2.8, 1);
-    drawCat(hx - 2.4, ty - 6.6, 1);
-  }
-  ctx.restore();
+    ctx.restore();
+  };
+  if (shield) drawShield(body, x, y);
+  body(x, y);
   ctx.globalAlpha = 1;
 }
 function stroke(col, w, pts) { ctx.strokeStyle = col; ctx.lineWidth = w; ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.stroke(); }
@@ -2301,6 +2636,11 @@ function draw() {
   T0(1, 0, 0, 1, 0, vo);
   drawBack();
   T0(1, 0, 0, 1, shx, vo + shy - G.camY);
+  if (G.barrel && G.barrel.scene) {   // v064: inside the barrel
+    drawDrum(); drawParts(0); drawFx(false); drawFloats();
+    ctx.globalCompositeOperation = 'lighter'; drawParts(1); drawFx(true); ctx.globalCompositeOperation = 'source-over';
+    T0(1, 0, 0, 1, 0, 0); drawZones(); drawHUD(); drawOverlay(); return;
+  }
   drawWave();
   drawTafeln();
   drawGaps();
@@ -2318,6 +2658,7 @@ function draw() {
   drawParts(0);
   drawFx(false);
   drawLip();
+  drawBarrelWorld();
   drawFloats();
   if (G.dim > 0) { ctx.globalAlpha = Math.min(0.45, G.dim * 0.7); R(-10, G.camY - 10, W + 20, H + 20, '#02121a'); ctx.globalAlpha = 1; }
   ctx.globalCompositeOperation = 'lighter';

@@ -159,3 +159,12 @@ The built file keeps comments and the original formatting.
 - Island: `steil(t)`, `istFront(t)`, `treboReich(t)`, `treboFeuert(t)`, `treboImRing(t)`, `treboWahl(t, d)`, `nachschub()`, `nachschubSzene()`, `drawLandung()`, `funkAntwort(ja, n)`; tile fields `turm`, `trebo`, `welkSeit` (in `T_KEYS`); `G.nachLand`; `G.landung` (not saved). Prio `who: 'radio'` → briefcase voice, header "+++ INCOMING RADIO MESSAGE · DECRYPTED +++", class `case radio`. New ills: `radio`, `banyanDanger`, `merge`, `memo`, `fired`, `gate`. API `toast(t)`.
 - Strand: `goldChance()`, `sweep()` with `r.chance`, `S.autoLetzt`; API `banner(t, ms)`, `autoLetzt()`, `goldFaehrt(info)`, `auto().chance`.
 - SPIEL: `hinweis(txt)` (toast on the island, banner on the beach); `strandFlut` stays in the current scene when the tower rides.
+
+## v065 — surf: clouds, shield, flame, barrel
+- **Build:** `node build.mjs` also copies the build to `builds/`, rewrites `builds/index.html` (versions with the rulebook heading `### vNNN — …`, date, lines, KB) and `index.html` (forwards to the newest). The repository is public; GitHub Pages serves the root.
+- surf.js: `ctx` is now `let` (the shield draws the rider into its own canvas: `drawShield(body, x, y)`, `SH`). `drawRider()` reads `G.riderOv = { x, y, ang, pose, shield }` when set (the barrel places him).
+- Clouds: `CLOUD` (warn, rain, pulses, back, fwd), `inRain(c)`; a cloud gets `cu` (wave units), `pi`, `hits`, `teach`; `G.restU` = where he rides at rest; `G.cloudTeach`.
+- Flame: `flameAct()`, `updFlame(dt)`, `flameWork(ox, oy, dir, list, dt, start)` (outside and in the drum), `drawFlame(x, y, dir, t0)`, `burnFlames(x, y, k)`; `G.flameX/flameY/flameDir/flameT0`; monsters get `burn`.
+- Barrel: `BRL` (timings, wake angle, windows), `brlK(t)`, `brlLipK()` (scales the curl in `drawLip`), `startBarrel()` (level event `'barrel'`), `barrelTap(k)` (called first in `tap()`), `updBarrel(dt)`, `barrelClamp()`, `drum()` / `dpos()`, `enterDrum()`, `drumTap(k)`, `drumMon(type, thArrive, T)`, `drumArrive(o, D, dt)`, `drumHearts(n0)`, `updDrum(dt)` (runs instead of the world in `update()`), `exitDrum(kind)` (`spit` / `fat` / `wake`), `drawBarrelWorld()`, `drawDrum()`. `G.barrel = { ph: herald|enter|crash|in|clear|sky|out, scene, t, K, hold, th, h, act, mons, hearts, shots, fly, open, climb, missed, kind }`. `levelSpawn()` waits while a barrel runs. Surf log: `{ k: 'barrel', what: herald|in|clamp|spit|fat|wake }`; `G.C.barrels`, `G.C.spits`.
+- Rules (spiel.js `surfRegeln`): cards `cloud` (at 20) and `barrel` (at 25).
+
