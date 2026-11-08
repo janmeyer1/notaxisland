@@ -90,7 +90,7 @@ async def main():
         ks = r['K']; drops = sum(1 for i in range(1, len(ks) - 1) if ks[i] > ks[i - 1] and ks[i] > ks[i + 1])
         check(r['ph'] == 'herald' and drops >= 2 and max(ks) >= 2.85, f'the curl swells and falls back twice, then goes over (peaks {drops}, max {max(ks)})')
         if SHOTS: await pg.wait_for_timeout(120); await pg.screenshot(path=SHOTS + '/k_pullin.png')
-        r = await pg.evaluate("""(() => { const G = KAMPF.G, B = G.barrel; T65.press('a'); T65.step(0.2); const mid = [B.ph, !G.cyc]; T65.step(0.6); return [mid, B.ph, !!B.scene, B.th]; })()""")
+        r = await pg.evaluate("""(() => { const G = KAMPF.G, B = G.barrel; T65.press('a'); T65.step(0.2); const mid = [B.ph, !G.cyc]; T65.step(1.2); return [mid, B.ph, !!B.scene, B.th]; })()""")
         check(r[0] == ['herald', True] and r[1] == 'in' and r[2], f'HOLD A in the window: no ordinary leap, after 0.25 s he pulls in ({r})')
         r = await pg.evaluate("""(() => { const G = KAMPF.G, B = G.barrel, s0 = G.stam, k0 = G.kills; T65.release('a'); let mons = 0, mus = 0, hearts = 0, shots = 0;
           T65.step(3.0, () => { mons = Math.max(mons, B.mons.filter(m => m.type !== 'm').length); mus = Math.max(mus, B.mons.filter(m => m.type === 'm').length); hearts = Math.max(hearts, B.hearts.length); shots = Math.max(shots, B.shots.length); });
@@ -115,7 +115,7 @@ async def main():
 
         print('5 · the barrel: the misses')
         async def into_drum():
-            await barrel_to_window(); await pg.evaluate("T65.press('a'); T65.step(0.8); T65.release('a'); T65.calm(); KAMPF.G.barrel.t = 9.9; T65.step(0.2); 1")
+            await barrel_to_window(); await pg.evaluate("T65.press('a'); T65.step(1.4); T65.release('a'); T65.calm(); KAMPF.G.barrel.t = 9.9; T65.step(0.2); 1")
         await barrel_to_window()
         r = await pg.evaluate("""(() => { const G = KAMPF.G, B = G.barrel, s0 = G.stam; T65.step(1.0); return [B.ph, s0 - G.stam, G.barrel ? 1 : 0]; })()""")
         check(r[0] == 'crash' and r[1] == 6, f'no pull-in: the lip lands on him — stamina damage, then on as normal ({r})')

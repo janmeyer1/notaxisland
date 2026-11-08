@@ -1320,7 +1320,8 @@ function drawClouds() {   // v062: a bigger, darker cloud, a thick curtain of po
 // herald: the curl swells and falls back twice, the third time it goes over (K = the curl's size) · window: PULL IN — HOLD A ≥ 0.25 s
 // inside: a full-screen spinning drum; monsters, mussels and hearts spiral out of the eye; A = boomerang, climb, dash, dive (short), D = jump / big jump off a mussel
 // exit: the drum opens top right; once the sky shows, HOLD A — he climbs the wall to the wake top left; let go there = SPIT! (a giant leap), too early = the wave backs off, too late = into the wake
-const BRL = { herald: [[0, 1], [0.8, 1.75], [1.4, 1.15], [2.2, 2.05], [2.7, 1.3], [3.3, 3.0]], winA: 3.25, winB: 4.05, hold: 0.25, inT: 10, clearT: 1.4, skyT: 1.8, climbW: 1.55, wakeA: Math.PI * 1.25, early: 0.25, late: 0.12, spin: 2.4, ringW: 0.85 };
+const BRL = { herald: [[0, 1], [0.8, 1.75], [1.4, 1.15], [2.2, 2.05], [2.7, 1.3], [3.3, 3.0]], winA: 3.25, winB: 4.05, hold: 0.25, inT: 10, clearT: 1.4, skyT: 1.8, climbW: 1.55, wakeA: Math.PI * 1.25, early: 0.25, late: 0.12, spin: 2.4, ringW: 0.85, view: 'side', enterT: 1.0, outT: 0.6 };
+const LAB = { on: !!window.BARREL_LAB, speed: 1, pause: false, mons: true, mode: 'spit', from: 'roll', loop: true, t: 0, did: {} };   // v067: the barrel workbench (builds/barrel_lab.html)
 function brlK(t) { const h = BRL.herald; for (let i = 1; i < h.length; i++) if (t < h[i][0]) { const [t0, k0] = h[i - 1], [t1, k1] = h[i], k = (t - t0) / (t1 - t0); return k0 + (k1 - k0) * (0.5 - 0.5 * Math.cos(Math.PI * k)); } return h[h.length - 1][1]; }
 function brlLipK() { const B = G.barrel; return B && !B.scene ? B.K : 1; }
 function startBarrel() {
@@ -1347,9 +1348,12 @@ function updBarrel(dt) {
     }
     if (B.ph === 'herald' && B.t >= BRL.winB) barrelClamp();
   }
-  else if (B.ph === 'enter') { B.K += dt * 4; if (B.t >= 0.45) enterDrum(); }
+  else if (B.ph === 'enter') {   // v067: he is carried along as the curl rolls up round him
+    B.K = Math.max(1, B.K - dt * 3); const D = drum(), k = Math.min(1, B.t / BRL.enterT), e = k * k * (3 - 2 * k); if (!B.e0) B.e0 = [sx(G.u), G.y];
+    const [tx, ty] = dpos(D, Math.PI / 2, D.R); G.riderOv = { x: B.e0[0] + (sx(tx) - B.e0[0]) * e, y: B.e0[1] + (ty - B.e0[1]) * e, ang: 0, pose: 'brake', shield: false };
+    if (B.t >= BRL.enterT) enterDrum(); }
   else if (B.ph === 'crash') { B.K = Math.max(1, B.K - dt * 5); if (B.t > 0.8) G.barrel = null; }
-  else if (B.ph === 'out') { B.K = Math.max(1, B.K - dt * 2); if (B.t > 0.7) G.barrel = null; }
+  else if (B.ph === 'out') { B.K = Math.max(1, B.K - dt * 2); if (B.t > BRL.outT) G.barrel = null; }
 }
 function barrelClamp() {   // the lip lands on him — no leap saves him from that
   const B = G.barrel; B.ph = 'crash'; B.t = 0;
@@ -1358,11 +1362,10 @@ function barrelClamp() {   // the lip lands on him — no leap saves him from th
   noiseBurst(0.7, 'lowpass', 500, 0.5); float(G.u, G.y - 44, 'CLAMPED!', '#ffffff', 13); logE({ k: 'barrel', what: 'clamp', tapped: !!B.tapped });
 }
 // the drum lives in world units, centred on the frozen camera: what goes on there uses the normal particles, floats and hurt()
-function drum() { const vo = VOFF(), R = Math.min(W * 0.42, H * 0.41); return { cx: G.camU + W / 2, cy: G.camY - vo + H * 0.5, R, re: Math.min(W, H) * 0.05 }; }
 function dpos(D, th, r) { return [D.cx + Math.cos(th) * r, D.cy + Math.sin(th) * r]; }
 function enterDrum() {
   const B = G.barrel;
-  Object.assign(B, { scene: true, ph: 'in', t: 0, flash: 0.5, saveU: G.u, th: Math.PI / 2, h: 0, act: null, mons: [], hearts: [], shots: [], fly: [], spawnT: 0.6, musT: 1.8, heartT: 0.3, stampT: 0.3, open: 0, climb: null, missed: false });
+  Object.assign(B, { scene: true, ph: 'in', t: 0, flash: 0, saveU: G.u, th: Math.PI / 2, h: 0, act: null, mons: [], hearts: [], shots: [], fly: [], spawnT: 0.6, musT: 1.8, heartT: 0.3, stampT: 0.3, open: 0, climb: null, missed: false });
   G.cyc = null; G.air = false; G.dashT = G.diveT = 0; G.ramp = null; G.lift = 0; G.flameOn = false; G.boom = null; G.shots = [];
   SFX.swell && SFX.swell();
 }
@@ -1389,12 +1392,13 @@ function drumMon(type, thA, T) {
 }
 function drumArrive(o, D, dt) {   // out of the eye along the spiral, then round the wall
   const d = o.dr; d.t += dt;
-  if (!d.ring) { const k = Math.max(0, Math.min(1, d.t / d.T)); d.r = D.re + (D.R - D.re) * Math.pow(k, 1.7); d.th = d.th0 + BRL.spin * d.t; if (k >= 1) d.ring = true; }
+  if (!d.ring) { const k = Math.max(0, Math.min(1, d.t / d.T)); d.r = D.rs + (D.R - D.rs) * Math.pow(k, 1.7); d.th = d.th0 + BRL.spin * d.t; if (k >= 1) d.ring = true; }
   else { d.r = D.R; d.th += d.w * dt; }
   const [x, y] = dpos(D, d.th, d.r); o.x = x; o.y = y;
 }
 function updDrum(dt) {
-  const B = G.barrel, D = drum(), mk = () => (B.ph === 'in' && B.t < BRL.inT - 2.2);
+  const B = G.barrel, D = drum(), mk = () => (B.ph === 'in' && B.t < BRL.inT - 2.2 && !(LAB.on && !LAB.mons));
+  G.farX += 8 * dt; G.midX += 30 * dt;   // v067: the world behind the eye drifts on
   B.t += dt; if (B.flash > 0) B.flash -= dt;
   if (B.ph === 'in' && B.t >= BRL.inT) { B.ph = 'clear'; B.t = 0; }
   else if (B.ph === 'clear') { B.open = Math.min(1, B.t / BRL.clearT); if (B.t >= BRL.clearT) { B.ph = 'sky'; B.t = 0; B.open = 1; } }
@@ -1472,12 +1476,11 @@ function updDrum(dt) {
   B.shots = B.shots.filter(s => !s.dead);
   if (G.inv > 0) G.inv -= dt; if (G.hurtT > 0) G.hurtT -= dt; if (G.ifr > 0) G.ifr -= dt; if (G.shake > 0) G.shake -= dt; if (G.magT > 0) G.magT -= dt;
   G.riderOv = { x: sx(px), y: py, ang: B.th - Math.PI / 2, pose: B.climb ? 'brake' : A ? (A.k === 'climb' ? 'brake' : A.k === 'dash' ? 'dash' : A.k === 'dive' ? 'dive' : A.k === 'jump' ? 'air' : 'ride') : 'ride', shield: safe };
-  if (!P.lite && Math.random() < dt * 30) { const a = Math.random() * 6.28; part(D.cx + Math.cos(a) * D.re, D.cy + Math.sin(a) * D.re, Math.cos(a + 0.6) * 120, Math.sin(a + 0.6) * 120, 0.9, 0, 0.8, 0); }   // spray out of the eye
   updParts(dt);
   for (const f of G.fx) f.t += dt; G.fx = G.fx.filter(f => f.t < f.life);
 }
 function exitDrum(kind) {
-  const B = G.barrel; B.scene = false; B.ph = 'out'; B.t = 0; B.kind = kind; B.flash = 0.45; B.K = 1.8;
+  const B = G.barrel; B.scene = false; B.ph = 'out'; B.t = 0; B.kind = kind; B.flash = 0; B.K = 1.8;
   G.riderOv = null; G.flameOn = false; G.boom = null; B.mons = []; B.hearts = []; B.shots = []; for (const f of B.fly) { G.C.hearts++; G.greenF += 1; } B.fly = [];
   G.u = B.saveU; G.y = ysAt(G.u, G.S); G.cyc = null; G.dashT = G.diveT = 0; G.air = false; G.ramp = null; G.vy = 0;
   logE({ k: 'barrel', what: kind });
@@ -1490,6 +1493,69 @@ function exitDrum(kind) {
   } else { G.inv = Math.max(G.inv, 0.8); float(G.u, G.y - 34, kind === 'wake' ? 'into the wake!' : 'the wave backs off', kind === 'wake' ? '#ff9a9a' : '#e9fbff', 11); burst(G.u, G.y - 6, 20, 0, 90, -60); }
 }
 // ---- drawing: the barrel in the world (the herald, the curtain, PULL IN) and the drum itself ----
+// v067: the tube is the same wave, rolled up. Two looks to choose from (BRL.view):
+//   'side'   — the wave seen from the side, rolled into a long spiral: its three blue layers (light surface, middle, deep) wind round a clear eye;
+//              Robinson rides the inside of the curl at the bottom of the eye, and through the eye you see the sky, the sea, the wreck.
+//   'behind' — looking down the tube from behind him: the three layers as three spiral arms round a small clear eye far ahead.
+// Both: spray mostly up top where the lip falls, some of it dragged round with the spin; about a quarter of the screen stays background.
+function drum() {
+  const vo = VOFF(), m = Math.min(W, H), cy = G.camY - vo + H * 0.44, side = BRL.view === 'side';
+  const re = side ? m * 0.4 : m * 0.24, R = side ? re : Math.min(W * 0.42, H * 0.46), rs = side ? m * 0.06 : re;
+  const Ro = side ? Math.hypot(W, H) * 0.75 : Math.max(R + 24, Math.sqrt(0.75 * W * H / Math.PI + re * re));
+  return { cx: G.camU + W / 2, cy, R, re, rs, Ro, side };
+}
+function tubeCols() { const lk = LOOK; return [lk.face[1], lk.face[2], lk.deep || lk.face[3]]; }
+function drawTube(x, y, s, k, open, t) {   // x: screen, y: world; s: scale; k: 0..1 how far it has rolled up (fades in, the spiral winds up); open: 0..1 the top right gone
+  const D = drum(), re = D.re * s, Ro = D.Ro * s, cols = tubeCols(), al = Math.max(0, Math.min(1, k * 1.5)), wind = 0.35 + 0.65 * k, rot = t * 0.9, lite = P.lite;
+  if (al <= 0) return;
+  const top = G.camY - VOFF();
+  ctx.save(); ctx.globalAlpha = al;
+  ctx.beginPath(); ctx.arc(x, y, Ro, 0, Math.PI * 2); ctx.moveTo(x + re, y); ctx.arc(x, y, re, 0, Math.PI * 2, true); ctx.clip('evenodd');   // the ring between the eye and the outside
+  if (open > 0) { const a0 = -Math.PI / 4, hw = 1.15 * open, big = Math.hypot(W, H); ctx.beginPath(); ctx.rect(-40, top - 40, W + 80, H + 80); ctx.moveTo(x, y);
+    for (let i = 0; i <= 24; i++) { const a = a0 + hw - 2 * hw * i / 24, wob = 1 + 0.06 * Math.sin(i * 1.7 + t * 4); ctx.lineTo(x + Math.cos(a) * big * wob, y + Math.sin(a) * big * wob); } ctx.closePath(); ctx.clip('evenodd'); }
+  const P2 = Math.PI * 2, pt = (a, r) => [x + Math.cos(a) * r, y + Math.sin(a) * r];
+  if (D.side) {   // one rolled sheet: every turn of it is the three layers, light on the inside (the water surface faces the hollow), deep outside
+    const turns = 3, b = Math.log(Ro / re) / (P2 * (turns - 1)) * (1 / wind), C = th => re * Math.exp(b * th), st = lite ? 0.22 : 0.12;
+    for (let j = 0; j < 3; j++) { ctx.fillStyle = cols[j]; ctx.beginPath(); let first = true;
+      for (let th = -P2; th <= P2 * turns; th += st) { const [px, py] = pt(th + rot, C(th + j * P2 / 3)); first ? ctx.moveTo(px, py) : ctx.lineTo(px, py); first = false; }
+      for (let th = P2 * turns; th >= -P2; th -= st) { const [px, py] = pt(th + rot, C(th + (j + 1) * P2 / 3)); ctx.lineTo(px, py); }
+      ctx.closePath(); ctx.fill(); }
+    ctx.strokeStyle = LOOK.line; ctx.lineWidth = 1.1; ctx.globalAlpha = al * 0.85; ctx.beginPath();   // the surface line, as on the open wave
+    for (let th = -P2; th <= P2 * turns; th += st) { const [px, py] = pt(th + rot, C(th)); th === -P2 ? ctx.moveTo(px, py) : ctx.lineTo(px, py); } ctx.stroke(); ctx.globalAlpha = al;
+    if (!lite) { ctx.fillStyle = 'rgba(' + LOOK.streak + ',.5)'; for (let i = 0; i < 90; i++) { const th = (i / 90) * P2 * (turns + 1) - P2, f = (i * 0.37) % 1, r = C(th + f * P2 * 0.95), a = th + rot; const [px, py] = pt(a, r);
+      ctx.save(); ctx.translate(px, py); ctx.rotate(a + Math.PI / 2); ctx.fillRect(-2 - r * 0.02, -0.3, 4 + r * 0.04, 0.6); ctx.restore(); } }   // streaks in the water, along the spin
+  } else {   // looking down the tube: three spiral arms, one per layer
+    const sw = 1.5 / wind, st = lite ? 10 : 18;
+    for (let j = 0; j < 3; j++) { ctx.fillStyle = cols[j]; ctx.beginPath();
+      for (let i = 0; i <= st; i++) { const r = re * Math.pow(Ro / re, i / st), a = rot + j * P2 / 3 + sw * Math.log(r / re); const [px, py] = pt(a, r); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }
+      const aO = rot + sw * Math.log(Ro / re), aI = rot; for (let q = 1; q < 12; q++) { const [px, py] = pt(aO + (j + q / 12) * P2 / 3, Ro); ctx.lineTo(px, py); }   // along the outer edge, not a chord across it
+      for (let i = st; i >= 0; i--) { const r = re * Math.pow(Ro / re, i / st), a = rot + (j + 1) * P2 / 3 + sw * Math.log(r / re) + 0.02; const [px, py] = pt(a, r); ctx.lineTo(px, py); }
+      for (let q = 11; q > 0; q--) { const [px, py] = pt(aI + (j + q / 12) * P2 / 3, re); ctx.lineTo(px, py); }
+      ctx.closePath(); ctx.fill(); }
+    ctx.strokeStyle = LOOK.line; ctx.lineWidth = 1; ctx.globalAlpha = al * 0.7;
+    for (let j = 0; j < 3; j++) { ctx.beginPath(); for (let i = 0; i <= st; i++) { const r = re * Math.pow(Ro / re, i / st), a = rot + j * P2 / 3 + sw * Math.log(r / re); const [px, py] = pt(a, r); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); } ctx.stroke(); }
+    ctx.globalAlpha = al;
+    if (!lite) { ctx.strokeStyle = 'rgba(' + LOOK.streak + ',.35)'; ctx.lineWidth = 0.6; for (let n = 0; n < 15; n++) { ctx.beginPath(); for (let i = 0; i <= 10; i++) { const r = re * Math.pow(Ro / re, i / 10), a = rot + n * P2 / 15 + 0.2 + sw * Math.log(r / re); const [px, py] = pt(a, r); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); } ctx.stroke(); } }
+  }
+  { const g = ctx.createRadialGradient(x, y, re, x, y, re * (D.side ? 1.35 : 1.9)); g.addColorStop(0, 'rgba(255,255,255,' + (D.side ? 0.3 : 0.5) + ')'); g.addColorStop(1, 'rgba(255,255,255,0)'); ctx.fillStyle = g; ctx.fillRect(x - Ro, y - Ro, Ro * 2, Ro * 2); }   // light from the eye
+  { const g = ctx.createRadialGradient(x, y, Math.min(Ro * 0.7, re * 2.2), x, y, Math.min(Ro, re * 3.2)); g.addColorStop(0, 'rgba(0,16,30,0)'); g.addColorStop(1, 'rgba(0,16,30,.35)'); ctx.fillStyle = g; ctx.fillRect(x - Ro, y - Ro, Ro * 2, Ro * 2); }   // darker away from it
+  // spray: most of it up top where the lip falls, some dragged round with the spin
+  const NF = lite ? 40 : 120;
+  for (let i = 0; i < NF; i++) { const L = hash(i + 1) < 0.25 ? 4 + 3 * hash(i + 2) : 0.8 + 1.6 * hash(i + 3), age = (t * 0.9 + hash(i + 4) * L) % L, th = -Math.PI / 2 + (hash(i + 5) - 0.5) * 1.5 + 1.1 * age,
+      rr = re * (1.02 + (D.side ? 0.5 : 1.4) * Math.pow(hash(i + 6), 1.5)), sz = (1 + 2.6 * hash(i + 7)) * (D.side ? 1 : 0.6 + rr / re * 0.5), a = (1 - age / L) * 0.85;
+    const [px, py] = pt(th + rot * 0.15, rr); ctx.globalAlpha = al * a; ctx.save(); ctx.translate(px, py); ctx.rotate(th); E(0, 0, sz * 0.7, sz * 1.6, i % 4 ? '#ffffff' : LOOK.foam); ctx.restore(); }
+  ctx.globalAlpha = al;
+  if (!lite) for (let i = 0; i < 26; i++) { const a = -Math.PI / 2 + (i / 25 - 0.5) * 2.2, w = Math.cos((i / 25 - 0.5) * 2.2), r = re * (1.04 + 0.12 * Math.sin(i * 2.1 + t * 6)), z = (2 + 3.5 * w) * (1 + 0.25 * Math.sin(i * 3 + t * 8));   // the lip's whitewater, thick on top
+    const [px, py] = pt(a, r); E(px, py, z, z * 0.8, '#ffffff'); }
+  ctx.restore();
+  // the eye's rim, thin below, ragged up top, and drips falling across its top
+  ctx.save(); ctx.globalAlpha = al;
+  for (let i = 0; i < 48; i++) { const a = (i / 48) * P2, up = Math.max(0, -Math.sin(a)), r = re * (1 + 0.015 * Math.sin(i * 5 + t * 7)); const [px, py] = pt(a, r); E(px, py, 1 + 2.4 * up, 0.8 + 1.6 * up, 'rgba(255,255,255,' + (0.45 + 0.5 * up) + ')'); }
+  if (!lite) { ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 0.7; for (let i = 0; i < 14; i++) { const a = -Math.PI / 2 + (hash(i + 30) - 0.5) * 1.6, f = (t * 1.6 + hash(i + 31)) % 1, r0 = re * (1 - 0.05 - f * 0.35); const [px, py] = pt(a, r0); ctx.globalAlpha = al * (1 - f); ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px + 1, py + 4 + 4 * f); ctx.stroke(); } }
+  if (!D.side) for (let i = 0; i < 40; i++) { const a = (i / 40) * P2 + t * 0.4, r = Ro * (0.97 + 0.03 * Math.sin(i * 3 + t * 5)); const [px, py] = pt(a, r); ctx.globalAlpha = al * 0.8; E(px, py, 4, 3, i % 2 ? '#ffffff' : LOOK.foam); }   // ragged spray at the outer edge
+  if (open > 0) { const a0 = -Math.PI / 4, hw = 1.15 * open; for (const a of [a0 - hw, a0 + hw]) for (let i = 0; i < 12; i++) { const r = re + (Math.min(Ro, Math.hypot(W, H)) - re) * (i / 12), z = 2 + 3 * hash(i + a * 10); const [px, py] = pt(a + 0.03 * Math.sin(i + t * 6), r); ctx.globalAlpha = al * 0.9; E(px, py, z, z * 0.7, '#ffffff'); } }
+  ctx.restore();
+}
 function drawBarrelWorld() {
   const B = G.barrel; if (!B || B.scene) return;
   const x = sx(G.u), y = G.y;
@@ -1512,34 +1578,15 @@ function drawBarrelWorld() {
     ctx.fillStyle = '#fff2a0'; ctx.font = '700 8px ' + FONT; ctx.fillText('HOLD A', 0, 5);
     ctx.restore();
   }
-  if (B.ph === 'enter') {   // the tube closes around him
-    const k = Math.min(1, B.t / 0.45), r = (1 - k) * Math.hypot(W, H);
-    ctx.save(); ctx.fillStyle = LOOK.face[2]; ctx.globalAlpha = 0.95; ctx.beginPath(); ctx.rect(-20, G.camY - VOFF() - 20, W + 40, H + 40); ctx.arc(x, y - 10, Math.max(4, r), 0, Math.PI * 2, true); ctx.fill('evenodd'); ctx.restore();
+  if (B.ph === 'enter' || B.ph === 'out') {   // v067: the curl rolls up into the tube (and back out into the wave)
+    const D = drum(), e = k => k * k * (3 - 2 * k), k = B.ph === 'enter' ? e(Math.min(1, B.t / BRL.enterT)) : 1 - e(Math.min(1, B.t / BRL.outT));
+    const lx = Math.max(10, sx(0) + 30), ly = Y_TOP + 6, cx = lx + (sx(D.cx) - lx) * k, cy = ly + (D.cy - ly) * k;
+    drawTube(cx, cy, 0.25 + 0.75 * k, k, B.ph === 'out' ? 1 : 0, G.T);
   }
-  if (B.ph === 'out' && B.flash > 0) { ctx.globalAlpha = Math.max(0, B.flash - B.t) * 1.6; R(-20, G.camY - VOFF() - 20, W + 40, H + 40, '#ffffff'); ctx.globalAlpha = 1; }
 }
 function drawDrum() {
-  const B = G.barrel, D = drum(), t = G.T, cx = sx(D.cx), cy = D.cy, Rr = D.R, re = D.re, big = Math.hypot(W, H) * 0.75, top = G.camY - VOFF(), lk = LOOK;
-  { const g = ctx.createRadialGradient(cx, cy, re * 0.5, cx, cy, big); g.addColorStop(0, '#ffffff'); g.addColorStop(0.05, lk.face[0]); g.addColorStop(0.22, lk.face[1]); g.addColorStop(0.5, lk.face[2]); g.addColorStop(1, lk.deep || lk.face[3]); ctx.fillStyle = g; ctx.fillRect(-20, top - 20, W + 40, H + 40); }
-  if (B.open > 0) {   // the drum opens top right: sky behind
-    const a0 = -Math.PI / 4, hw = 1.15 * B.open, sg = ctx.createLinearGradient(0, top, 0, top + H); sg.addColorStop(0, lk.sky[0]); sg.addColorStop(1, lk.sky[lk.sky.length - 1] || lk.sky[0]);
-    ctx.fillStyle = sg; ctx.beginPath(); ctx.moveTo(cx, cy); for (let i = 0; i <= 24; i++) { const a = a0 - hw + 2 * hw * i / 24, wob = 1 + 0.05 * Math.sin(i * 1.7 + t * 4); ctx.lineTo(cx + Math.cos(a) * big * wob, cy + Math.sin(a) * big * wob); } ctx.closePath(); ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,.75)'; for (let i = 0; i < 4; i++) { const a = a0 + (i - 1.5) * 0.35 * B.open, r = Rr * (0.9 + 0.25 * i); E(cx + Math.cos(a) * r, cy + Math.sin(a) * r, 14, 4, 'rgba(255,255,255,.7)'); }
-  }
-  ctx.save();
-  if (B.open > 0) { const a0 = -Math.PI / 4, hw = 1.15 * B.open; ctx.beginPath(); ctx.rect(-20, top - 20, W + 40, H + 40); ctx.moveTo(cx, cy); for (let i = 0; i <= 24; i++) { const a = a0 + hw - 2 * hw * i / 24; ctx.lineTo(cx + Math.cos(a) * big, cy + Math.sin(a) * big); } ctx.closePath(); ctx.clip('evenodd'); }   // where the sky shows, the water is gone
-  // the spin: spiral streaks and foam flecks running out of the eye
-  const N = P.lite ? 14 : 28;
-  for (let i = 0; i < N; i++) { const a0 = i * 2 * Math.PI / N + t * 0.9; ctx.strokeStyle = 'rgba(255,255,255,' + (i % 3 ? 0.08 : 0.16) + ')'; ctx.lineWidth = 0.8 + (i % 2) * 0.6; ctx.beginPath();
-    for (let j = 0; j <= 12; j++) { const r = re * 1.4 * Math.pow(big / (re * 1.4), j / 12), a = a0 + 0.9 * Math.log(r / re); const X = cx + Math.cos(a) * r, Y = cy + Math.sin(a) * r; j ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); } ctx.stroke(); }
-  if (!P.lite) { ctx.fillStyle = 'rgba(255,255,255,.75)'; for (let i = 0; i < 70; i++) { const f = (i * 0.137 + t * 0.55) % 1, r = re * Math.exp(f * Math.log(big / re)), a = i * 2.4 + t * 0.9 + 0.9 * Math.log(r / re), z = 0.4 + 2.2 * f; ctx.globalAlpha = 0.25 + 0.5 * (1 - f); ctx.fillRect(cx + Math.cos(a) * r, cy + Math.sin(a) * r, z, z); } ctx.globalAlpha = 1; }
-  // the wall he rides: a band of foam
-  ctx.strokeStyle = 'rgba(255,255,255,.28)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(cx, cy, Rr + 4, 0, Math.PI * 2); ctx.stroke();
-  ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.arc(cx, cy, Rr + 1, 0, Math.PI * 2); ctx.stroke();
-  if (!P.lite) for (let i = 0; i < 26; i++) { const a = i * 0.2417 * Math.PI * 2 + t * BRL.ringW, r = Rr + 3 + 2 * Math.sin(i * 1.3 + t * 5); E(cx + Math.cos(a) * r, cy + Math.sin(a) * r, 2.2 + (i % 3), 1.4, 'rgba(255,255,255,.55)'); }
-  ctx.restore();
-  // the eye: the light at the end of the tube
-  ctx.globalCompositeOperation = 'lighter'; { const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, re * 3); g.addColorStop(0, 'rgba(255,255,255,' + (0.85 + 0.1 * Math.sin(t * 7)) + ')'); g.addColorStop(1, 'rgba(200,255,250,0)'); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, re * 3, 0, 7); ctx.fill(); } ctx.globalCompositeOperation = 'source-over';
+  const B = G.barrel, D = drum(), t = G.T, cx = sx(D.cx), cy = D.cy, Rr = D.R, top = G.camY - VOFF();
+  drawTube(cx, cy, 1, 1, B.open, t);
   // the wake top left, the target of the way out
   if (B.ph === 'sky' || B.climb) { const a = BRL.wakeA, pulse = 0.6 + 0.4 * Math.sin(t * 10);
     ctx.strokeStyle = 'rgba(255,226,106,' + pulse + ')'; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(cx, cy, Rr + 2, a - BRL.early, a + BRL.late); ctx.stroke();
@@ -1560,7 +1607,6 @@ function drawDrum() {
   drawRider();
   if (B.ph === 'sky' && !B.climb) { const [x, y] = [G.riderOv ? G.riderOv.x : cx, G.y - 40], sc = 1 + 0.12 * Math.sin(t * 14); ctx.save(); ctx.translate(x, y); ctx.scale(sc, sc); ctx.textAlign = 'center'; ctx.font = '700 14px ' + FONT; ctx.lineWidth = 3; ctx.strokeStyle = '#0a2630'; ctx.strokeText('HOLD A', 0, 0); ctx.fillStyle = '#fff2a0'; ctx.fillText('HOLD A', 0, 0); ctx.font = '600 6.5px ' + FONT; ctx.lineWidth = 2; ctx.strokeText('let go at the wake', 0, 10); ctx.fillStyle = '#ffffff'; ctx.fillText('let go at the wake', 0, 10); ctx.restore(); }
   if (B.ph === 'in' && B.t < 2.2) { ctx.globalAlpha = Math.min(1, (2.2 - B.t) * 1.5); ctx.textAlign = 'center'; ctx.font = '700 15px ' + FONT; ctx.lineWidth = 3; ctx.strokeStyle = '#06303a'; ctx.strokeText('BARRELED!', cx, top + 34); ctx.fillStyle = '#bff8ff'; ctx.fillText('BARRELED!', cx, top + 34); ctx.font = '600 7px ' + FONT; ctx.lineWidth = 2; ctx.strokeText('A — leap and dive · D — jump (off a mussel: big jump)', cx, top + 46); ctx.fillStyle = '#ffffff'; ctx.fillText('A — leap and dive · D — jump (off a mussel: big jump)', cx, top + 46); ctx.globalAlpha = 1; }
-  if (B.flash > 0) { ctx.globalAlpha = Math.min(1, B.flash * 2); R(-20, top - 20, W + 40, H + 40, '#ffffff'); ctx.globalAlpha = 1; }
 }
 function updCat(dt) {
   const k = G.kat; if (k.mode === 'away') return;
@@ -1843,6 +1889,7 @@ function update(dt) {
   speech(dt);
   if (G.over) { G.overT += dt; updParts(dt); if (G.overT > 1.8) finish(false); return; }
   if (G.won) { G.wonT += dt; updParts(dt); if (G.wonT > (G.final ? 2.6 : 2.0)) finish(true); return; }
+  if (LAB.on) labTick(dt);
   if (G.hitStop > 0) { G.hitStop -= dt; updParts(dt); return; }   // v052: a short hit-stop makes every stamina hit felt
   if (G.hurtFx > 0) G.hurtFx -= dt;
   if (G.barChip) { G.barChip.t += dt; if (G.barChip.t > 0.7) G.barChip = null; }
@@ -2677,9 +2724,9 @@ let last = 0, predT = 0;
 function frame(now) {
   try {
     const raw = last ? (now - last) / 1000 : 0.016; last = now;
-    const dt = Math.min(0.05, raw);
+    const dt = Math.min(0.05, raw) * (LAB.on ? LAB.speed : 1);
     clock += dt;
-    if (running && !paused && G) {
+    if (running && !paused && !(LAB.on && LAB.pause) && G) {
       update(dt);
     }
     draw();
@@ -2835,3 +2882,52 @@ function surfTestPage() {
 }
 if (window.SURF_TEST) surfTestPage();
 
+// ---------- v067: the barrel workbench (builds/barrel_lab.html sets window.BARREL_LAB) — the chain from PULL IN to the way out, on its own ----------
+function labGo() {
+  const cfg = { stage: 27, kind: 'wave', upg: { dmg: 4, speed: 3, splash: 2, flame: 1, glide: 1, cycleBoom: 1 }, stam: 60, stamMax: 60, cat: true, seen: {} };
+  fit(); reset(cfg); DONE = () => {}; running = true; paused = false; IN.a = IN.d = false;
+  LV.ei = LV.ev.length; LV.mi = LV.msgs.length; G.bq = []; G.banner = null; G.T = 3;
+  LAB.t = 0; LAB.did = {}; LAB.started = false; LAB.after = 0; G.tipT = 1e9;   // no tortoise tips on the workbench
+}
+function labTick(dt) {
+  const L = LAB; L.t += dt; G.stam = Math.max(G.stam, 30); if (!G.barrel) G.mons = [];
+  if (!L.started && L.t > 0.7) { L.started = true; startBarrel(); const B = G.barrel;
+    if (L.from === 'roll') B.t = 2.0;
+    else { B.ph = 'enter'; B.t = BRL.enterT; enterDrum(); const B2 = G.barrel; if (L.from === 'open') B2.t = BRL.inT - 0.6; else if (L.from === 'exit') { B2.ph = 'sky'; B2.t = 0; B2.open = 1; } } }
+  const B = G.barrel;
+  if (!B) { if (L.started && (L.after += dt) > 2.8 && L.loop) labGo(); return; }
+  if (L.mode === 'manual') return;
+  if (B.ph === 'herald' && B.t >= BRL.winA + 0.15 && B.hold === undefined) { IN.a = true; barrelTap('a'); }
+  if (B.ph === 'enter') IN.a = false;
+  if (!B.scene) return;
+  if (B.ph === 'in') for (const [at, k] of [[2.6, 'd'], [4.6, 'a'], [7.2, 'd']]) if (B.t >= at && !L.did[at]) { L.did[at] = 1; drumTap(k); }
+  if (B.ph === 'clear' && L.mode === 'asky' && B.t > 0.5 && !L.did.asky) { L.did.asky = 1; drumTap('a'); }
+  if (B.ph === 'sky' && L.mode !== 'asky' && B.t > 0.35 && !B.climb && !L.did.climb) { L.did.climb = 1; IN.a = true; drumTap('a'); }
+  if (B.climb) { const stop = L.mode === 'spit' ? BRL.wakeA - 0.04 : L.mode === 'early' ? BRL.wakeA - 0.7 : 99; if (B.th >= stop) IN.a = false; }
+}
+function barrelLab() {
+  const box = document.createElement('div'); box.id = 'blab';
+  const row = (lab, key, opts) => '<div class="r"><b>' + lab + '</b>' + opts.map(([v, t]) => '<button data-k="' + key + '" data-v="' + v + '">' + t + '</button>').join('') + '</div>';
+  box.innerHTML = '<style>#blab{position:fixed;left:8px;bottom:8px;z-index:95;font:12px Fredoka,system-ui,sans-serif;color:#13303a;background:rgba(255,246,227,.94);border-radius:12px;padding:8px 10px;max-width:min(94vw,560px);box-shadow:0 4px 18px rgba(0,0,0,.3)}' +
+    '#blab .r{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin:3px 0}#blab b{min-width:64px;font-weight:600}#blab button{font:600 12px Fredoka,system-ui,sans-serif;border:0;border-radius:8px;padding:5px 8px;background:#e8dcc2;color:#13303a;cursor:pointer}' +
+    '#blab button.on{background:#1f7a6a;color:#fff}#blab .st{font-size:11px;opacity:.75;margin-top:3px}#blab.min .r,#blab.min .st{display:none}#blab .x{float:right;background:none;padding:0 2px}</style>' +
+    '<button class="x" id="blabX">▾ barrel lab</button>' +
+    row('View', 'view', [['side', 'Side (spiral)'], ['behind', 'From behind (tunnel)']]) +
+    row('Way out', 'mode', [['spit', 'SPIT'], ['early', 'let go early'], ['late', 'hold too long'], ['asky', 'A before the sky'], ['manual', 'play yourself']]) +
+    row('Start at', 'from', [['roll', 'roll-in'], ['ride', 'inside'], ['open', 'opening'], ['exit', 'way out']]) +
+    row('Speed', 'speed', [['0.25', '¼'], ['0.5', '½'], ['1', '1×']]) +
+    row('', 'misc', [['pause', '⏸ pause'], ['mons', 'monsters'], ['loop', 'loop'], ['go', '↻ again']]) +
+    '<div class="st" id="blabSt"></div>';
+  document.body.appendChild(box);
+  const mark = () => box.querySelectorAll('button[data-k]').forEach(b => { const k = b.dataset.k, v = b.dataset.v;
+    b.classList.toggle('on', k === 'view' ? BRL.view === v : k === 'mode' ? LAB.mode === v : k === 'from' ? LAB.from === v : k === 'speed' ? LAB.speed === +v : v === 'pause' ? LAB.pause : v === 'mons' ? LAB.mons : v === 'loop' ? LAB.loop : false); });
+  box.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; if (b.id === 'blabX') { box.classList.toggle('min'); return; }
+    const k = b.dataset.k, v = b.dataset.v;
+    if (k === 'view') BRL.view = v; else if (k === 'mode') { LAB.mode = v; labGo(); } else if (k === 'from') { LAB.from = v; labGo(); } else if (k === 'speed') LAB.speed = +v;
+    else if (v === 'pause') LAB.pause = !LAB.pause; else if (v === 'mons') LAB.mons = !LAB.mons; else if (v === 'loop') LAB.loop = !LAB.loop; else if (v === 'go') labGo();
+    mark(); try { cv.focus({ preventScroll: true }); } catch (_) {} });
+  mark();
+  setInterval(() => { const B = G && G.barrel, st = document.getElementById('blabSt'); if (st) st.textContent = 'A = left half / A key · D = right half / D key — ' + (B ? B.ph + ' ' + B.t.toFixed(1) + ' s' + (B.kind ? ' · ' + B.kind : '') : 'on the open wave') + (LAB.pause ? ' · paused' : ''); }, 200);
+  setTimeout(() => { const ov = document.getElementById('overlay'); if (ov) ov.style.display = 'none'; SPIEL.zeige('kampf', { force: true }); labGo(); }, 300);
+}
+if (window.BARREL_LAB) barrelLab();

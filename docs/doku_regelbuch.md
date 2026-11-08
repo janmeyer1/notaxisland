@@ -275,6 +275,15 @@ Living design memory for the "Robinson" incremental game. Supersedes the older C
 - **Prio typing** 1.5× faster. **Next-root icon** = root knot "+1" ("root +1").
 - Panel: 50 % odds read "⚖ Coin flip" instead of "Likely holds"; banyan rot line says "burns rings" above level 1.
 - **Cat shortcut "tide 20"** = Jan's save after clearing Region I (RSAVE state embedded).
+### v067 — the barrel rolls up out of the wave; the barrel workbench (2026-11-08)
+- **New look, two views to choose from** (`BRL.view`, in the game for now **side**):
+  - **Side (spiral):** the same wave, seen from the side, rolled into a long spiral — its three blue layers (light surface, middle, deep) wind round a **clear eye** through which the real background shows (sky, sea, horizon, the wreck when it drifts by; the background keeps drifting). Robinson rides the inside of the curl at the bottom of the eye; monsters and hearts spiral out of the middle of the eye.
+  - **From behind (tunnel):** looking down the tube — the three layers as three spiral arms round a small clear eye far ahead; Robinson rides the wall near the bottom.
+  - Both: about a quarter of the screen stays background; spray mostly up top where the lip falls (thick whitewater along the top of the eye, drips across it), some of it dragged round with the spin; the eye's rim is ragged on top. Turning clockwise.
+- **Roll-in (1.0 s):** no more cut and white flash — the curl at the crest grows and winds up into the tube while it moves to the middle of the screen; Robinson is carried along into his place. **Way out:** the tube opens top right (the background shows through), and after the exit it **unrolls back** into the wave towards the crest (0.6 s).
+- **Barrel workbench** `builds/barrel_lab.html` (always the newest build; linked on the builds page): runs only the chain from PULL IN (held A assumed) to the way out, again and again. Panel (bottom left, ▾ folds it): **view** side / behind · **way out** SPIT / let go early / hold too long / A before the sky / play yourself · **start at** roll-in / inside / opening / way out · **speed** ¼ ½ 1× · pause · monsters on/off · loop · again. In "play yourself": A = left half or A key, D = right half or D key.
+- New test: `test_barrel_lab.py`; `test_kampf_v065.py` follows the longer roll-in.
+
 ### v066 — the barrel from stage 27, no slow motion for the cloud (2026-11-06)
 - **The barrel** starts at **stage 27** (was 25), lesson cards at **27 and 28** — so the first surf after Jan's cat jump T40 (stage 27) brings the introduction. Rules card "The barrel" from stage 27.
 - **Poison cloud lesson** (stage 20/21): the big pulsing **TAP A** stays, the **slow motion is gone** (it broke the flow). The only other slow motions in the surf are the old ones: a short one when the thrown followers land on the first wall stages (8–9) and the TERMINATED finish of the last stand.
