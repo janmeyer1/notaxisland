@@ -18,7 +18,7 @@
 // ============================================================================
 import fs from 'fs'; import path from 'path'; import os from 'os'; import { execFileSync } from 'child_process';
 const ROOT = path.dirname(new URL(import.meta.url).pathname);
-let VERSION = '067';
+let VERSION = '068';
 process.argv.slice(2).forEach(a => { const [k, v] = a.split('='); if (k === 'v') VERSION = v; });
 const WORLDS = {
   strand: { name: 'STRAND', suffix: '_STRAND', files: ['strand.js', 'titel.js'] },

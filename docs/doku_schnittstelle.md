@@ -173,3 +173,6 @@ The built file keeps comments and the original formatting.
 - Workbench: `LAB = { on, speed, pause, mons, mode: spit|early|late|asky|manual, from: roll|ride|open|exit, loop }`, `labGo()`, `labTick(dt)` (called from `update` when `LAB.on`), `barrelLab()` (panel, started when `window.BARREL_LAB`). `frame()` scales dt by `LAB.speed` and holds on `LAB.pause`.
 - build.mjs writes `builds/barrel_lab.html` (the same build with `window.BARREL_LAB = true`) and links it on `builds/index.html`.
 
+## v068 — barrel tunnel
+- `drum()` adds `ex, ey` (the wandering eye; side view: = centre); `dpos(D, th, r)` bends positions with `r < R` towards the eye. `tubeSpin()` (rad/s, stage and boost). `BRL.view` defaults to `'behind'`. `G.barrel.launch = { t, th }` (the take-off, 0.6 s) before `exitDrum('spit', [x, y])`. `drawBarrelRoll()` draws the rolling tube under the rider (before `drawRider`), `drawBarrelWorld()` keeps the curtain and the PULL IN sign.
+

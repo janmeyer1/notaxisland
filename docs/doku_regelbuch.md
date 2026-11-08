@@ -275,6 +275,15 @@ Living design memory for the "Robinson" incremental game. Supersedes the older C
 - **Prio typing** 1.5× faster. **Next-root icon** = root knot "+1" ("root +1").
 - Panel: 50 % odds read "⚖ Coin flip" instead of "Likely holds"; banyan rot line says "burns rings" above level 1.
 - **Cat shortcut "tide 20"** = Jan's save after clearing Region I (RSAVE state embedded).
+### v068 — the tunnel view, faster, more white water, the take-off (2026-11-08)
+- **Barrel look: from behind** (now the game's view). The tube **fills the screen** (no sky or sea round it); its three layers are **three arms wound as tightly as the side spiral** (2½ turns from the eye to the edge).
+- **Spin much faster**, and faster with the stage: 2.2 + 0.08 per stage above 27, × 1.4 because inside the barrel **the boost is always on** (the boost bar is full).
+- **The eye** is smaller (15 % of the short side), sits on the **horizon** (half sky, half sea, the wreck now and then) and **wanders** slowly; deep in the tube the walls bend towards it, and what comes out of the eye comes out where the eye is.
+- **Mussels** in the barrel the right way round (the ramp faces him).
+- **More white water:** three times the spray flecks, white water along the edges of the three arms, and the lip's curtain up top across the whole tube.
+- **Take-off on SPIT:** no more jump-cut — he crouches on the wake, then flies in an arc across the opening into the sky (0.6 s, spray trail), and the flight goes on from exactly there over the unrolling wave (`exitDrum('spit', at)`); the tube is drawn under him while it rolls up or out.
+- Workbench: unchanged controls; the side view stays selectable there.
+
 ### v067 — the barrel rolls up out of the wave; the barrel workbench (2026-11-08)
 - **New look, two views to choose from** (`BRL.view`, in the game for now **side**):
   - **Side (spiral):** the same wave, seen from the side, rolled into a long spiral — its three blue layers (light surface, middle, deep) wind round a **clear eye** through which the real background shows (sky, sea, horizon, the wreck when it drifts by; the background keeps drifting). Robinson rides the inside of the curl at the bottom of the eye; monsters and hearts spiral out of the middle of the eye.

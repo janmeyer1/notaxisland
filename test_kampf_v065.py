@@ -107,9 +107,9 @@ async def main():
         check(r[0][0] == 'clear' and 0 < r[0][1] < 1 and r[1] == 'sky' and r[2] == 1, f'after 10 s the drum opens top right, then the sky shows ({r})')
         if SHOTS: await pg.wait_for_timeout(150); await pg.screenshot(path=SHOTS + '/k_sky.png')
         r = await pg.evaluate("""(() => { const G = KAMPF.G, B = G.barrel; T65.press('a'); let n = 0; while (B.scene && B.th < KAMPF.BRL.wakeA - 0.04 && n++ < 400) T65.step(1 / 60);
-          const th = B.th; T65.release('a'); T65.step(1 / 60); return [B.kind, +th.toFixed(2), G.air, Math.round(G.vy), G.inv > 0]; })()""")
-        check(r[0] == 'spit' and r[2] and r[3] < -400 and r[4], f'HOLD A up the wall, let go at the wake: SPIT! — a giant leap into the sky ({r})')
-        r = await pg.evaluate("""(() => { const G = KAMPF.G, y0 = G.y; let top = y0; T65.step(1.2, () => { top = Math.min(top, G.y); }); return [Math.round(y0 - top)]; })()""")
+          const th = B.th; T65.release('a'); T65.step(1 / 60); const launch = !!B.launch; T65.step(0.65); return [B.kind, +th.toFixed(2), G.air, Math.round(G.vy), G.inv > 0, launch]; })()""")
+        check(r[0] == 'spit' and r[2] and r[3] < 0 and r[4] and r[5], f'HOLD A up the wall, let go at the wake: a take-off, then SPIT! — he is thrown into the sky ({r})')
+        r = await pg.evaluate("""(() => { const G = KAMPF.G; return [Math.round(KAMPF.ysAt(Math.max(3, G.u), G.S) - G.y)]; })()""")
         check(r[0] > 150, f'he flies high above the wave ({r})')
         if SHOTS: await pg.evaluate("T65.step(-0.6 + 0.01)"); await pg.wait_for_timeout(100)
 
