@@ -275,6 +275,16 @@ Living design memory for the "Robinson" incremental game. Supersedes the older C
 - **Prio typing** 1.5× faster. **Next-root icon** = root knot "+1" ("root +1").
 - Panel: 50 % odds read "⚖ Coin flip" instead of "Likely holds"; banyan rot line says "burns rings" above level 1.
 - **Cat shortcut "tide 20"** = Jan's save after clearing Region I (RSAVE state embedded).
+### v069 — review of the main game; the barrel settled in: soft, in an arc, and the wave waits (2026-11-10)
+- **Review** of the whole game (technique incl. Android emulation, mechanics, story logic, explanations) with a prioritised list: `docs/review_v068.md` (project doc `claude/robinson_review_v068.md`). New tests: `test_android.py`, `test_haupt_v069.py` (open findings are printed as OPEN).
+- **Barrel, start cards:** stage 27 opens with **NEW: THE BARREL**, stage 28 with **THE BARREL AGAIN** (not "more of everything"); the card just before the barrel stays.
+- **Quiet water:** about 4 s of open water before every barrel (`st.v × 4`).
+- **The wave waits** (`BRL.waitAt` 2.7 s into the herald): while Robinson is in the A cycle, at a wall or under a flashing/raining cloud, the curl holds (bobbing, at most 9 s) and only then goes over. A D hop does not hold it.
+- **The tube runs in an arc:** the eye sits right of the middle (10 % of the width, wandering ±6 %); rings bend towards it with the square of their depth (`tubeBend`), up to 1.6 × the ring he rides — so his ring, the monsters and the hearts follow the arc.
+- **Soft edges:** the water is painted small into its own canvas (`TB`, about a third of the resolution) and laid over the screen enlarged; twelve shades round the three layers; the eye, the opening top right and the rim while rolling are feathered. The white water is drawn sharp on top.
+- **Roll-in 1.1 s / roll-out 0.8 s:** the open wave sinks into the water's colour under the growing tube (and comes back out of it), no jump at either end. The flight after SPIT is protected for 1.8 s and shows the **shield** instead of flickering (`G.spit`).
+- Texts corrected: the flamethrower lesson ("through the climb and the whole leap, until you dive"); the briefcase says "Mr. Robinson" in "Who is on the radio".
+
 ### v068 — the tunnel view, faster, more white water, the take-off (2026-11-08)
 - **Barrel look: from behind** (now the game's view). The tube **fills the screen** (no sky or sea round it); its three layers are **three arms wound as tightly as the side spiral** (2½ turns from the eye to the edge).
 - **Spin much faster**, and faster with the stage: 2.2 + 0.08 per stage above 27, × 1.4 because inside the barrel **the boost is always on** (the boost bar is full).

@@ -50,7 +50,7 @@ const MSG = {
   10: ['The reef — and him', 'Walls and mussels — and at the end the First Mate.', 'Jump (D) or dash-dive (A) under his shockwave.'],
   glide: ['NEW: GLIDER — hold D in the air', 'Jump (D), then keep D held: the palm-leaf glider opens and carries you.', 'Try it on the small crevasse ahead (sign HOLD). Up to 2 s per jump.'],
   nestNo: ['No glider!', 'Without the glider the wide crevasses are deadly.', 'Jump the small ones (D) — and hope.'],
-  flame: ['NEW: FLAMETHROWER — hold A', 'Tap A at the sign as always — then keep A held while you climb.', 'The flame burns into the wall as long as you hold.'],
+  flame: ['NEW: FLAMETHROWER — hold A', 'Tap A at the sign as always — then keep A held.', 'It burns through the climb and the whole leap, until you dive.'],
 };
 function stageDef(cfg) {
   const n = Math.max(1, cfg.stage | 0), b = STAGE_BASE[Math.min(n, 10)], st = Object.assign({}, b);
@@ -128,11 +128,11 @@ function buildLevel(st, rng, fl) {
     case 9: msg(9); calm(600); wall({ n: 8, u: 3, f: 1 }); chain(3); wall({ n: 9, u: 3, f: 2 }); chain(4); wall({ n: 10, u: 3, f: 2 }); chain(3); wall({ n: 10, u: 4, f: 2 }); break;
     case 10: msg(10); calm(600); [3, 5, 4, 4].forEach((k, i) => phrase(i, k, { n: 9 + i, u: 3 + (i >> 1), f: 2 })); break;   // v054: varied phrases
     default: {   // 11+: like 10 without the boss — longer, faster, more
-      const k = n - 10; msg(n === 15 ? ['NEW: BLACK EELS', 'They come up from below and swim faster than the water.', 'Stamp them a few times — or let the cat have them (Eel Catcher).'] : n === 20 ? ['NEW: POISON CLOUDS', 'A black cloud stops over you and rains poison where you ride.', 'When it flashes A!, tap A: climb back and leap out of the rain.'] : n === 21 ? ['POISON CLOUDS', 'It rains on the stretch where you ride. Tap A when it flashes A!', 'Tap much too early and you come down in the rain again.'] : ['Stage ' + n, 'Longer, faster, more of everything.', '']); calm(500);   // v061: a new monster every 5 stages
+      const k = n - 10; msg(n === 15 ? ['NEW: BLACK EELS', 'They come up from below and swim faster than the water.', 'Stamp them a few times — or let the cat have them (Eel Catcher).'] : n === 27 ? ['NEW: THE BARREL', 'Somewhere in this stage the wave stands up and curls right over you.', 'When the sign says PULL IN: hold A.'] : n === 28 ? ['THE BARREL AGAIN', 'It comes back this stage. Under the curtain: PULL IN — hold A.', 'On the way out hold A and let go at the wake.'] : n === 20 ? ['NEW: POISON CLOUDS', 'A black cloud stops over you and rains poison where you ride.', 'When it flashes A!, tap A: climb back and leap out of the rain.'] : n === 21 ? ['POISON CLOUDS', 'It rains on the stretch where you ride. Tap A when it flashes A!', 'Tap much too early and you come down in the rain again.'] : ['Stage ' + n, 'Longer, faster, more of everything.', '']); calm(500);   // v061: a new monster every 5 stages
       const goal = stageTime(n) * st.v * 1.35;   // v055: phrases until the stage is as long as its time (it ran ~60 s instead of ~90)
       let brl = false;   // v064: one barrel per stage, in the second half (v066: from stage 27 — the first ride after Jan's T40)
       for (let i = 0; i < 40 && (i < 3 || w < goal - 900); i++) {
-        if (n >= 27 && !brl && w > goal * 0.5) { brl = true; if (n <= 28) msg(['THE BARREL', 'The wave stands up and curls over you. Under the curtain: PULL IN — HOLD A.', 'Inside: A leaps, D jumps. On the way out HOLD A — let go at the wake.']); w += 450; add('barrel', w); w += st.v * 5.4; } phrase(i + k, Math.min(6, 4 + (i % 3)), { n: Math.min(10 + k + i, 18 + k), u: 3 + (i % 3), f: 2 + Math.floor(k / 2) });
+        if (n >= 27 && !brl && w > goal * 0.5) { brl = true; if (n <= 28) msg(['THE BARREL', 'The wave stands up and curls over you. Under the curtain: PULL IN — HOLD A.', 'Inside: A leaps, D jumps. On the way out HOLD A — let go at the wake.']); w += st.v * 4; add('barrel', w); w += st.v * 5.6; }   // v069: about four seconds of open water before it, on every barrel stage phrase(i + k, Math.min(6, 4 + (i % 3)), { n: Math.min(10 + k + i, 18 + k), u: 3 + (i % 3), f: 2 + Math.floor(k / 2) });
         if (n >= 20 && i % 3 === 1) add('cloud', w + 100);   // v061: poison clouds from stage 20
         if (n >= 15 && i % 2 === 0) for (let q = 0, g = Math.min(6, 3 + Math.floor((n - 15) / 4)); q < g; q++) add('e', w + 60 + q * 26);   // v062: a school of eels between the phrases from stage 15 (3, growing to 6)
         if (i % 2 === 1) { add('kick', w + 140); calm(700); } else ride(700, 0.62 + 0.02 * Math.min(10, k), 0.28, 700); }   // v062: one more, denser wave of tadpoles per phrase pair   // v061: a good free wave between the phrases — with something in the sky
@@ -965,7 +965,7 @@ function catVoice(m) {   // only the boss still gets a yowl when he goes down
   }
 }
 function hurt(cause, n) {
-  if (P.godMode || G.inv > 0 || G.over || G.won || (G.ifr > 0 && cause !== 'lip')) return;
+  if (P.godMode || G.inv > 0 || G.spit > 0 || G.over || G.won || (G.ifr > 0 && cause !== 'lip')) return;   // v069: the flight out of the barrel is safe — shown by the shield, not by a flicker
   if (G.cyc && G.cyc.ph === 'dash' && cause !== 'gap') return;   // v054: the whole A leap is untouchable
   const mul = ST.n >= 8 ? 3 : ST.n >= 4 ? 1.5 : 1;   // v062: +50 % — stage 1–3 ×1, 4–7 ×1.5, from 8 ×3 (it was ×2: Jan rarely got hurt)
   G.dmgAcc = (G.dmgAcc || 0) + (n || 1) * mul; let d = Math.max(1, Math.floor(G.dmgAcc + 1e-6)); G.dmgAcc = Math.max(0, G.dmgAcc - d);
@@ -1320,7 +1320,7 @@ function drawClouds() {   // v062: a bigger, darker cloud, a thick curtain of po
 // herald: the curl swells and falls back twice, the third time it goes over (K = the curl's size) · window: PULL IN — HOLD A ≥ 0.25 s
 // inside: a full-screen spinning drum; monsters, mussels and hearts spiral out of the eye; A = boomerang, climb, dash, dive (short), D = jump / big jump off a mussel
 // exit: the drum opens top right; once the sky shows, HOLD A — he climbs the wall to the wake top left; let go there = SPIT! (a giant leap), too early = the wave backs off, too late = into the wake
-const BRL = { herald: [[0, 1], [0.8, 1.75], [1.4, 1.15], [2.2, 2.05], [2.7, 1.3], [3.3, 3.0]], winA: 3.25, winB: 4.05, hold: 0.25, inT: 10, clearT: 1.4, skyT: 1.8, climbW: 1.55, wakeA: Math.PI * 1.25, early: 0.25, late: 0.12, spin: 2.4, ringW: 0.85, view: 'behind', enterT: 1.0, outT: 0.6 };
+const BRL = { herald: [[0, 1], [0.8, 1.75], [1.4, 1.15], [2.2, 2.05], [2.7, 1.3], [3.3, 3.0]], winA: 3.25, winB: 4.05, hold: 0.25, inT: 10, clearT: 1.4, skyT: 1.8, climbW: 1.55, wakeA: Math.PI * 1.25, early: 0.25, late: 0.12, spin: 2.4, ringW: 0.85, view: 'behind', waitAt: 2.7, enterT: 1.1, outT: 0.8 };
 const LAB = { on: !!window.BARREL_LAB, speed: 1, pause: false, mons: true, mode: 'spit', from: 'roll', loop: true, t: 0, did: {} };   // v067: the barrel workbench (builds/barrel_lab.html)
 function brlK(t) { const h = BRL.herald; for (let i = 1; i < h.length; i++) if (t < h[i][0]) { const [t0, k0] = h[i - 1], [t1, k1] = h[i], k = (t - t0) / (t1 - t0); return k0 + (k1 - k0) * (0.5 - 0.5 * Math.cos(Math.PI * k)); } return h[h.length - 1][1]; }
 function brlLipK() { const B = G.barrel; return B && !B.scene ? B.K : 1; }
@@ -1339,7 +1339,8 @@ function barrelTap(k) {
 function updBarrel(dt) {
   const B = G.barrel; if (!B || B.scene) return; B.t += dt;
   if (B.ph === 'herald') {
-    B.K = brlK(B.t);
+    if (B.t >= BRL.waitAt && !B.gone) { const busy = G.cyc || G.wallEv || G.dashT > 0 || G.diveT > 0 || G.clouds.some(c => c.ph === 'warn' || c.ph === 'rain'); if (busy && (B.waited = (B.waited || 0) + dt) < 9) B.t = BRL.waitAt; else B.gone = true; }   // v069: the wave waits — nobody misses the barrel for dodging a wall or a cloud correctly (a D hop does not hold it)
+    B.K = brlK(B.t) + (B.t === BRL.waitAt ? 0.12 * Math.sin(G.T * 3) : 0);
     if ((B.rum -= dt) <= 0) { B.rum = 0.9; noiseBurst(0.8, 'lowpass', 140 + 40 * B.K, 0.18 + 0.08 * B.K); }
     if (B.K > 1.6 && !P.lite && Math.random() < dt * 30) part(G.u - 60 + Math.random() * 40, Y_TOP + 4 - 10 * B.K, 40 + Math.random() * 90, -40 - Math.random() * 50, 0.6, 0, 1, 120);
     if (B.hold !== undefined) {
@@ -1362,7 +1363,7 @@ function barrelClamp() {   // the lip lands on him — no leap saves him from th
   noiseBurst(0.7, 'lowpass', 500, 0.5); float(G.u, G.y - 44, 'CLAMPED!', '#ffffff', 13); logE({ k: 'barrel', what: 'clamp', tapped: !!B.tapped });
 }
 // the drum lives in world units, centred on the frozen camera: what goes on there uses the normal particles, floats and hurt()
-function dpos(D, th, r) { const f = D.side ? 1 : Math.max(0, Math.min(1, (r - D.re) / (D.R - D.re))), ox = D.ex + (D.cx - D.ex) * f, oy = D.ey + (D.cy - D.ey) * f; return [ox + Math.cos(th) * r, oy + Math.sin(th) * r]; }   // v068: deep in the tube things sit round the wandering eye
+function dpos(D, th, r) { const e = tubeBend(D, r); return [D.cx + (D.ex - D.cx) * e + Math.cos(th) * r, D.cy + (D.ey - D.cy) * e + Math.sin(th) * r]; }   // v069: everything in the tube follows its arc
 function enterDrum() {
   const B = G.barrel;
   Object.assign(B, { scene: true, ph: 'in', t: 0, flash: 0, saveU: G.u, th: Math.PI / 2, h: 0, act: null, mons: [], hearts: [], shots: [], fly: [], spawnT: 0.6, musT: 1.8, heartT: 0.3, stampT: 0.3, open: 0, climb: null, missed: false });
@@ -1497,7 +1498,7 @@ function exitDrum(kind, at) {
   if (kind === 'spit') {   // the barrel spits him out: a giant leap into the sky, then he falls (or glides) back onto a normal wave
     G.y -= 40; G.air = true; G.airT = 0; G.jumpBusy = true; G.vy = -480; G.qAir = 25;
     if (at) { G.u = at[0]; G.y = at[1]; G.vy = -140; G.qAir = (B.saveU - at[0]) / 1.6; }   // v068: on from where the take-off left him, high up
-    G.airTop = G.y; G.inv = Math.max(G.inv, 1.6); G.C.spits = (G.C.spits || 0) + 1; combo();
+    G.airTop = G.y; G.spit = 1.8; G.C.spits = (G.C.spits || 0) + 1; combo();
     for (let i = 0; i < 10; i++) G.KH.push({ u: G.u + i * 6, y: G.y - 20, vu: 50 + i * 12, vy: -260 - i * 10 });
     G.HL.push({ w: G.S + G.u + 240, h: -9, got: false, ph: 0, crystal: true });
     burst(G.u, G.y, 50, 0, 180, -160); burst(G.u, G.y, 24, 9, 120, -120, true); G.shake = Math.max(G.shake, 0.35);
@@ -1510,71 +1511,79 @@ function exitDrum(kind, at) {
 //              Robinson rides the inside of the curl at the bottom of the eye, and through the eye you see the sky, the sea, the wreck.
 //   'behind' — looking down the tube from behind him: the three layers as three spiral arms round a small clear eye far ahead.
 // Both: spray mostly up top where the lip falls, some of it dragged round with the spin; about a quarter of the screen stays background.
-function drum() {   // v068: from behind the tube fills the screen; its eye is small, sits on the horizon and wanders a little
+function drum() {   // v068: from behind the tube fills the screen; its eye is small, sits on the horizon and wanders — v069: off to the right, so the tube runs in an arc
   const vo = VOFF(), m = Math.min(W, H), cx = G.camU + W / 2, cy = G.camY - vo + H * 0.44, side = BRL.view === 'side';
-  const re = side ? m * 0.4 : m * 0.15, R = side ? re : Math.min(W * 0.42, H * 0.46), rs = side ? m * 0.06 : re, Ro = Math.hypot(W, H) * (side ? 0.75 : 0.8);
+  const re = side ? m * 0.4 : m * 0.15, R = side ? re : Math.min(W * 0.42, H * 0.46), rs = side ? m * 0.06 : re, Ro = Math.hypot(W, H) * (side ? 0.75 : 0.85);
   let ex = cx, ey = cy;
-  if (!side) { const t = G.T; ex = cx + Math.sin(t * 0.45) * W * 0.07; ey = Math.max(cy - R * 0.55, Math.min(cy + R * 0.25, HZ + 0.6 * G.camY + Math.sin(t * 0.37) * H * 0.05)); }
+  if (!side) { const t = G.T; ex = cx + W * (0.1 + 0.06 * Math.sin(t * 0.45)); ey = Math.max(cy - R * 0.55, Math.min(cy + R * 0.25, HZ + 0.6 * G.camY + Math.sin(t * 0.37) * H * 0.05)); }
   return { cx, cy, R, re, rs, Ro, side, ex, ey };
 }
+function tubeBend(D, r) {   // v069: 0 at the wall he rides and nearer, 1 at the eye — squared, so the far rings swing over faster and faster: an arc, not a straight pipe
+  if (D.side) return 0; const d = 1 - Math.max(0, Math.min(1, (r - D.re) / (D.R * 1.6 - D.re))); return d * d;
+}
 function tubeSpin() { return (2.2 + 0.08 * Math.max(0, ST.n - 27)) * 1.4; }   // v068: much faster, more with the stage — and always as if on boost
-function tubeCols() { const lk = LOOK; return [lk.face[1], lk.face[2], lk.deep || lk.face[3]]; }
+function tubeCols() {   // v069: twelve shades round the three layers, so one blue runs softly into the next
+  const lk = LOOK, hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)), base = [lk.face[1], lk.face[2], lk.deep || lk.face[3]].map(hex), out = [];
+  for (let j = 0; j < 3; j++) for (const f of [0, 0, 0.3, 0.68]) { const a = base[j], b = base[(j + 1) % 3]; out.push('rgb(' + a.map((v, i) => Math.round(v + (b[i] - v) * f)).join(',') + ')'); }
+  return out;
+}
+const TB = { c: document.createElement('canvas') };
+// v069: the water of the tube is painted small into its own canvas and laid over the screen enlarged — soft edges everywhere (between the blues, round the eye,
+// along the opening, at the rim while it rolls up) and about a sixth of the drawing work; the white water goes on top, sharp.
 function drawTube(x, y, s, k, open, t) {   // x: screen, y: world; s: scale; k: 0..1 how far it has rolled up (fades in, the spiral winds up); open: 0..1 the top right gone
-  const D = drum(), re = D.re * s, Ro = D.Ro * s, cols = tubeCols(), al = Math.max(0, Math.min(1, k * 1.5)), wind = 0.35 + 0.65 * k, rot = t * tubeSpin(), lite = P.lite, exs = x + (D.ex - D.cx) * s, eys = y + (D.ey - D.cy) * s, Rs = D.R * s;
+  const D = drum(), re = D.re * s, Ro = D.Ro * s, al = Math.max(0, Math.min(1, k * 1.5)), wind = 0.35 + 0.65 * k, rot = t * tubeSpin(), lite = P.lite, exs = x + (D.ex - D.cx) * s, eys = y + (D.ey - D.cy) * s;
   if (al <= 0) return;
-  const top = G.camY - VOFF();
-  ctx.save(); ctx.globalAlpha = al;
-  ctx.beginPath(); ctx.arc(x, y, Ro, 0, Math.PI * 2); ctx.moveTo(exs + re, eys); ctx.arc(exs, eys, re, 0, Math.PI * 2, true); ctx.clip('evenodd');   // the ring between the eye and the outside
-  if (open > 0) { const a0 = -Math.PI / 4, hw = 1.15 * open, big = Math.hypot(W, H); ctx.beginPath(); ctx.rect(-40, top - 40, W + 80, H + 80); ctx.moveTo(x, y);
-    for (let i = 0; i <= 24; i++) { const a = a0 + hw - 2 * hw * i / 24, wob = 1 + 0.06 * Math.sin(i * 1.7 + t * 4); ctx.lineTo(x + Math.cos(a) * big * wob, y + Math.sin(a) * big * wob); } ctx.closePath(); ctx.clip('evenodd'); }
-  const P2 = Math.PI * 2, pt = (a, r) => { const f = D.side ? 1 : Math.max(0, Math.min(1, (r - re) / (Rs - re))); return [exs + (x - exs) * f + Math.cos(a) * r, eys + (y - eys) * f + Math.sin(a) * r]; };
+  const top = G.camY - VOFF(), P2 = Math.PI * 2, M = 24, q = Math.max(1, SC * (lite ? 0.25 : 0.34)), pw = Math.ceil((W + 2 * M) * q), ph = Math.ceil((H + 2 * M) * q);
+  const pt = (a, r) => { const e = tubeBend({ side: D.side, re, R: D.R * s }, r); return [x + (exs - x) * e + Math.cos(a) * r, y + (eys - y) * e + Math.sin(a) * r]; };
+  if (TB.c.width !== pw || TB.c.height !== ph) { TB.c.width = pw; TB.c.height = ph; }
+  const c = TB.c.getContext('2d'); c.setTransform(1, 0, 0, 1, 0, 0); c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1; c.clearRect(0, 0, pw, ph); c.setTransform(q, 0, 0, q, M * q, (M - top) * q);
+  const cols = tubeCols(), r0 = re * 0.86;
   if (D.side) {   // one rolled sheet: every turn of it is the three layers, light on the inside (the water surface faces the hollow), deep outside
-    const turns = 3, b = Math.log(Ro / re) / (P2 * (turns - 1)) * (1 / wind), C = th => re * Math.exp(b * th), st = lite ? 0.22 : 0.12;
-    for (let j = 0; j < 3; j++) { ctx.fillStyle = cols[j]; ctx.beginPath(); let first = true;
-      for (let th = -P2; th <= P2 * turns; th += st) { const [px, py] = pt(th + rot, C(th + j * P2 / 3)); first ? ctx.moveTo(px, py) : ctx.lineTo(px, py); first = false; }
-      for (let th = P2 * turns; th >= -P2; th -= st) { const [px, py] = pt(th + rot, C(th + (j + 1) * P2 / 3)); ctx.lineTo(px, py); }
-      ctx.closePath(); ctx.fill(); }
-    ctx.strokeStyle = LOOK.line; ctx.lineWidth = 1.1; ctx.globalAlpha = al * 0.85; ctx.beginPath();   // the surface line, as on the open wave
-    for (let th = -P2; th <= P2 * turns; th += st) { const [px, py] = pt(th + rot, C(th)); th === -P2 ? ctx.moveTo(px, py) : ctx.lineTo(px, py); } ctx.stroke(); ctx.globalAlpha = al;
-    if (!lite) { ctx.fillStyle = 'rgba(' + LOOK.streak + ',.5)'; for (let i = 0; i < 90; i++) { const th = (i / 90) * P2 * (turns + 1) - P2, f = (i * 0.37) % 1, r = C(th + f * P2 * 0.95), a = th + rot; const [px, py] = pt(a, r);
-      ctx.save(); ctx.translate(px, py); ctx.rotate(a + Math.PI / 2); ctx.fillRect(-2 - r * 0.02, -0.3, 4 + r * 0.04, 0.6); ctx.restore(); } }   // streaks in the water, along the spin
-  } else {   // looking down the tube: three spiral arms, one per layer
-    const sw = P2 * 2.5 / Math.log(Ro / re) / wind, st = lite ? 50 : 140;   // v068: wound like the side spiral
-    for (let j = 0; j < 3; j++) { ctx.fillStyle = cols[j]; ctx.beginPath();
-      for (let i = 0; i <= st; i++) { const r = re * Math.pow(Ro / re, i / st), a = rot + j * P2 / 3 + sw * Math.log(r / re); const [px, py] = pt(a, r); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }
-      const aO = rot + sw * Math.log(Ro / re), aI = rot; for (let q = 1; q < 30; q++) { const [px, py] = pt(aO + (j + q / 30) * P2 / 3, Ro); ctx.lineTo(px, py); }   // along the outer edge, not a chord across it
-      for (let i = st; i >= 0; i--) { const r = re * Math.pow(Ro / re, i / st), a = rot + (j + 1) * P2 / 3 + sw * Math.log(r / re) + 0.02; const [px, py] = pt(a, r); ctx.lineTo(px, py); }
-      for (let q = 11; q > 0; q--) { const [px, py] = pt(aI + (j + q / 12) * P2 / 3, re); ctx.lineTo(px, py); }
-      ctx.closePath(); ctx.fill(); }
-    ctx.strokeStyle = LOOK.line; ctx.lineWidth = 1; ctx.globalAlpha = al * 0.7;
-    for (let j = 0; j < 3; j++) { ctx.beginPath(); for (let i = 0; i <= st; i++) { const r = re * Math.pow(Ro / re, i / st), a = rot + j * P2 / 3 + sw * Math.log(r / re); const [px, py] = pt(a, r); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); } ctx.stroke(); }
-    ctx.globalAlpha = al;
-    if (!lite) { ctx.strokeStyle = 'rgba(' + LOOK.streak + ',.35)'; ctx.lineWidth = 0.6; for (let n = 0; n < 15; n++) { ctx.beginPath(); for (let i = 0; i <= 40; i++) { const r = re * Math.pow(Ro / re, i / 40), a = rot + n * P2 / 15 + 0.2 + sw * Math.log(r / re); const [px, py] = pt(a, r); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); } ctx.stroke(); } }
+    const turns = 3, b = Math.log(Ro / re) / (P2 * (turns - 1)) * (1 / wind), C = th => re * Math.exp(b * th), st = 0.16;
+    for (let j = 0; j < 12; j++) { c.fillStyle = cols[j]; c.beginPath(); let first = true;
+      for (let th = -P2; th <= P2 * turns; th += st) { const [px, py] = pt(th + rot, C(th + j * P2 / 12)); first ? c.moveTo(px, py) : c.lineTo(px, py); first = false; }
+      for (let th = P2 * turns; th >= -P2; th -= st) { const [px, py] = pt(th + rot, C(th + (j + 1) * P2 / 12) + 0.6); c.lineTo(px, py); }
+      c.closePath(); c.fill(); }
+    c.strokeStyle = LOOK.line; c.lineWidth = 1.4; c.globalAlpha = 0.8; c.beginPath();
+    for (let th = -P2; th <= P2 * turns; th += st) { const [px, py] = pt(th + rot, C(th)); th === -P2 ? c.moveTo(px, py) : c.lineTo(px, py); } c.stroke(); c.globalAlpha = 1;
+  } else {   // looking down the tube: the three layers as spiral arms, wound 2½ times from the eye to the edge
+    const sw = P2 * 2.5 / Math.log(Ro / re) / wind, st = lite ? 60 : 120, big = Math.max(Ro, Math.hypot(W, H));
+    for (let j = 0; j < 12; j++) { c.fillStyle = cols[j]; c.beginPath();
+      for (let i = 0; i <= st; i++) { const r = r0 * Math.pow(big / r0, i / st), a = rot + j * P2 / 12 + sw * Math.log(r / re); const [px, py] = pt(a, r); i ? c.lineTo(px, py) : c.moveTo(px, py); }
+      for (let i = st; i >= 0; i--) { const r = r0 * Math.pow(big / r0, i / st), a = rot + (j + 1) * P2 / 12 + sw * Math.log(r / re) + 0.03; const [px, py] = pt(a, r); c.lineTo(px, py); }
+      c.closePath(); c.fill(); }
+    c.strokeStyle = LOOK.line; c.lineWidth = 1.3; c.globalAlpha = 0.55;
+    for (let j = 0; j < 3; j++) { c.beginPath(); for (let i = 0; i <= st; i++) { const r = r0 * Math.pow(big / r0, i / st), a = rot + j * P2 / 3 + sw * Math.log(r / re); const [px, py] = pt(a, r); i ? c.lineTo(px, py) : c.moveTo(px, py); } c.stroke(); }
+    if (!lite) { c.strokeStyle = 'rgba(' + LOOK.streak + ',.3)'; c.lineWidth = 0.8; for (let n = 0; n < 12; n++) { c.beginPath(); for (let i = 0; i <= 40; i++) { const r = r0 * Math.pow(big / r0, i / 40), a = rot + n * P2 / 12 + 0.2 + sw * Math.log(r / re); const [px, py] = pt(a, r); i ? c.lineTo(px, py) : c.moveTo(px, py); } c.stroke(); } }
+    c.globalAlpha = 1;
   }
-  { const g = ctx.createRadialGradient(exs, eys, re, exs, eys, re * (D.side ? 1.35 : 2.6)); g.addColorStop(0, 'rgba(255,255,255,' + (D.side ? 0.3 : 0.5) + ')'); g.addColorStop(1, 'rgba(255,255,255,0)'); ctx.fillStyle = g; ctx.fillRect(x - Ro, y - Ro, Ro * 2, Ro * 2); }   // light from the eye
-  { const g = ctx.createRadialGradient(x, y, Math.min(Ro * 0.7, re * 2.2), x, y, Math.min(Ro, re * 3.2)); g.addColorStop(0, 'rgba(0,16,30,0)'); g.addColorStop(1, 'rgba(0,16,30,.35)'); ctx.fillStyle = g; ctx.fillRect(x - Ro, y - Ro, Ro * 2, Ro * 2); }   // darker away from it
-  // spray: most of it up top where the lip falls, some dragged round with the spin
-  const NF = lite ? 80 : 300;   // v068: more white water
+  c.globalCompositeOperation = 'source-atop';   // light and shade only where there is water
+  { const g = c.createRadialGradient(exs, eys, re * 0.9, exs, eys, re * (D.side ? 1.4 : 2.8)); g.addColorStop(0, 'rgba(255,255,255,' + (D.side ? 0.32 : 0.55) + ')'); g.addColorStop(1, 'rgba(255,255,255,0)'); c.fillStyle = g; c.fillRect(-M, top - M, W + 2 * M, H + 2 * M); }
+  { const g = c.createRadialGradient(x, y, Math.min(Ro * 0.5, re * 2.4), x, y, Math.min(Ro, re * 4.5)); g.addColorStop(0, 'rgba(0,16,30,0)'); g.addColorStop(1, 'rgba(0,16,30,.4)'); c.fillStyle = g; c.fillRect(-M, top - M, W + 2 * M, H + 2 * M); }
+  c.globalCompositeOperation = 'destination-out';   // the soft edges: the eye, the rim while it rolls, the opening
+  { const g = c.createRadialGradient(exs, eys, re * 0.86, exs, eys, re * 1.14); g.addColorStop(0, 'rgba(0,0,0,1)'); g.addColorStop(1, 'rgba(0,0,0,0)'); c.fillStyle = g; c.beginPath(); c.arc(exs, eys, re * 1.14, 0, P2); c.fill(); }
+  if (s < 0.999 || k < 0.999) { const g = c.createRadialGradient(x, y, Ro * 0.72, x, y, Ro); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,1)'); c.fillStyle = g; c.beginPath(); c.rect(-M - 9999, top - M - 9999, 2e4, 2e4); c.arc(x, y, Ro * 0.72, 0, P2, true); c.fill('evenodd'); }
+  const a0 = -Math.PI / 4, hw = 1.15 * open, inWedge = a => open > 0 && Math.abs(Math.atan2(Math.sin(a - a0), Math.cos(a - a0))) < hw;
+  if (open > 0) { const far = Math.hypot(W, H) * 1.3; c.fillStyle = 'rgba(0,0,0,.34)';
+    for (const dw of [0.1, 0.05, 0, -0.05]) { const h2 = Math.max(0.01, hw + dw); c.beginPath(); c.moveTo(exs, eys); for (let i = 0; i <= 20; i++) { const a = a0 - h2 + 2 * h2 * i / 20, wob = 1 + 0.05 * Math.sin(i * 1.7 + t * 4); c.lineTo(exs + Math.cos(a) * far * wob, eys + Math.sin(a) * far * wob); } c.closePath(); c.fill(); }
+    c.fillStyle = 'rgba(0,0,0,1)'; { const h2 = Math.max(0.01, hw - 0.1); c.beginPath(); c.moveTo(exs, eys); for (let i = 0; i <= 20; i++) { const a = a0 - h2 + 2 * h2 * i / 20; c.lineTo(exs + Math.cos(a) * far, eys + Math.sin(a) * far); } c.closePath(); c.fill(); } }
+  c.globalCompositeOperation = 'source-over';
+  ctx.save(); ctx.globalAlpha = al; ctx.imageSmoothingEnabled = true; ctx.drawImage(TB.c, -M, top - M, W + 2 * M, H + 2 * M);
+  // the white water, sharp on top: spray mostly up where the lip falls, some dragged round with the spin; along the arms; the eye's rim
+  const fl = (px, py, rx, ry, a, col, alpha) => { if (px < -8 || px > W + 8 || py < top - 8 || py > top + H + 8) return; ctx.globalAlpha = al * alpha; ctx.save(); ctx.translate(px, py); ctx.rotate(a); ctx.fillStyle = col; ctx.beginPath(); ctx.ellipse(0, 0, rx, ry, 0, 0, P2); ctx.fill(); ctx.restore(); };
+  const edge = Ro * (s < 0.999 || k < 0.999 ? 0.8 : 1);
+  const NF = lite ? 50 : 150;
   for (let i = 0; i < NF; i++) { const L = hash(i + 1) < 0.25 ? 4 + 3 * hash(i + 2) : 0.8 + 1.6 * hash(i + 3), age = (t * 0.9 + hash(i + 4) * L) % L, th = -Math.PI / 2 + (hash(i + 5) - 0.5) * 1.5 + 1.1 * age,
-      rr = re * (1.02 + (D.side ? 0.5 : (Ro / re - 1) * 0.55) * Math.pow(hash(i + 6), 1.3)), sz = (1.4 + 3.4 * hash(i + 7)) * (D.side ? 1 : 0.6 + Math.min(3, rr / re * 0.35)), a = (1 - age / L) * 0.9;
-    const [px, py] = pt(th + rot * 0.15, rr); ctx.globalAlpha = al * a; ctx.save(); ctx.translate(px, py); ctx.rotate(th); E(0, 0, sz * 0.7, sz * 1.6, i % 4 ? '#ffffff' : LOOK.foam); ctx.restore(); }
-  ctx.globalAlpha = al;
-  if (!D.side) {   // v068: the white water along the arms' edges, and the lip's curtain up top across the whole tube
-    const sw2 = P2 * 2.5 / Math.log(Ro / re) / wind;
-    for (let j = 0; j < 3; j++) for (let i = 0; i < (lite ? 12 : 34); i++) { const f = (i + (t * 0.6) % 1) / (lite ? 12 : 34), r = re * Math.pow(Ro / re, f), a = rot + j * P2 / 3 + sw2 * Math.log(r / re); const [px, py] = pt(a, r), z = (1.2 + 3 * f) * (0.7 + 0.5 * hash(i + j * 50));
-      ctx.globalAlpha = al * (0.55 + 0.35 * hash(i + 7 * j)); ctx.save(); ctx.translate(px, py); ctx.rotate(a); E(0, 0, z * 0.8, z * 1.8, '#ffffff'); ctx.restore(); }
-    for (let i = 0; i < (lite ? 20 : 70); i++) { const f = Math.pow(hash(i + 90), 0.8), r = re * Math.pow(Ro / re, f * 0.85), a = -Math.PI / 2 + (hash(i + 91) - 0.5) * (1.4 - 0.6 * f) + Math.sin(t * 2 + i) * 0.05, z = (2 + 6 * f) * (0.6 + 0.6 * hash(i + 92));
-      const [px, py] = pt(a, r); ctx.globalAlpha = al * (0.6 + 0.3 * Math.sin(t * 5 + i)); E(px, py, z * 1.3, z, i % 3 ? '#ffffff' : LOOK.foam); }
-    ctx.globalAlpha = al; }
-  if (!lite) for (let i = 0; i < 26; i++) { const a = -Math.PI / 2 + (i / 25 - 0.5) * 2.2, w = Math.cos((i / 25 - 0.5) * 2.2), r = re * (1.04 + 0.12 * Math.sin(i * 2.1 + t * 6)), z = (2 + 3.5 * w) * (1 + 0.25 * Math.sin(i * 3 + t * 8));   // the lip's whitewater, thick on top
-    const [px, py] = pt(a, r); E(px, py, z, z * 0.8, '#ffffff'); }
-  ctx.restore();
-  // the eye's rim, thin below, ragged up top, and drips falling across its top
-  ctx.save(); ctx.globalAlpha = al;
-  for (let i = 0; i < 48; i++) { const a = (i / 48) * P2, up = Math.max(0, -Math.sin(a)), r = re * (1 + 0.015 * Math.sin(i * 5 + t * 7)); const [px, py] = pt(a, r); E(px, py, 1 + 2.4 * up, 0.8 + 1.6 * up, 'rgba(255,255,255,' + (0.45 + 0.5 * up) + ')'); }
-  if (!lite) { ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 0.7; for (let i = 0; i < 14; i++) { const a = -Math.PI / 2 + (hash(i + 30) - 0.5) * 1.6, f = (t * 1.6 + hash(i + 31)) % 1, r0 = re * (1 - 0.05 - f * 0.35); const [px, py] = pt(a, r0); ctx.globalAlpha = al * (1 - f); ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px + 1, py + 4 + 4 * f); ctx.stroke(); } }
-  if (!D.side) for (let i = 0; i < 40; i++) { const a = (i / 40) * P2 + t * 0.4, r = Ro * (0.97 + 0.03 * Math.sin(i * 3 + t * 5)); const [px, py] = pt(a, r); ctx.globalAlpha = al * 0.8; E(px, py, 4, 3, i % 2 ? '#ffffff' : LOOK.foam); }   // ragged spray at the outer edge
-  if (open > 0) { const a0 = -Math.PI / 4, hw = 1.15 * open; for (const a of [a0 - hw, a0 + hw]) for (let i = 0; i < 12; i++) { const r = re + (Math.min(Ro, Math.hypot(W, H)) - re) * (i / 12), z = 2 + 3 * hash(i + a * 10); const [px, py] = pt(a + 0.03 * Math.sin(i + t * 6), r); ctx.globalAlpha = al * 0.9; E(px, py, z, z * 0.7, '#ffffff'); } }
+      rr = re * (1.06 + (D.side ? 0.5 : (Ro / re - 1) * 0.55) * Math.pow(hash(i + 6), 1.3)), sz = (1.4 + 3.4 * hash(i + 7)) * (D.side ? 1 : 0.6 + Math.min(3, rr / re * 0.35)) * s, a = Math.sin(Math.PI * Math.min(1, age / L + 0.08)) * 0.85;
+    if (rr > edge || inWedge(th + rot * 0.15)) continue; const [px, py] = pt(th + rot * 0.15, rr); fl(px, py, sz * 0.7, sz * 1.6, th, i % 4 ? '#ffffff' : LOOK.foam, a); }
+  if (!D.side) { const sw2 = P2 * 2.5 / Math.log(Ro / re) / wind, n1 = lite ? 8 : 20;
+    for (let j = 0; j < 3; j++) for (let i = 0; i < n1; i++) { const f = (i + (t * 0.6) % 1) / n1, r = re * 1.05 * Math.pow(Ro / re, f), a = rot + j * P2 / 3 + sw2 * Math.log(r / re); if (r > edge || inWedge(a)) continue; const [px, py] = pt(a, r), z = (1.2 + 3 * f) * (0.7 + 0.5 * hash(i + j * 50)) * s;
+      fl(px, py, z * 0.8, z * 1.8, a, '#ffffff', (0.5 + 0.35 * hash(i + 7 * j)) * Math.sin(Math.PI * Math.min(1, f * 1.15))); }
+    for (let i = 0; i < (lite ? 14 : 44); i++) { const f = Math.pow(hash(i + 90), 0.8), r = re * 1.05 * Math.pow(Ro / re, f * 0.85), a = -Math.PI / 2 + (hash(i + 91) - 0.5) * (1.4 - 0.6 * f) + Math.sin(t * 2 + i) * 0.05, z = (2 + 6 * f) * (0.6 + 0.6 * hash(i + 92)) * s;
+      if (r > edge || inWedge(a)) continue; const [px, py] = pt(a, r); fl(px, py, z * 1.3, z, 0, i % 3 ? '#ffffff' : LOOK.foam, 0.55 + 0.3 * Math.sin(t * 5 + i)); } }
+  for (let i = 0; i < 40; i++) { const a = (i / 40) * P2, up = Math.max(0, -Math.sin(a)); if (inWedge(a)) continue; const r = re * (1.04 + 0.02 * Math.sin(i * 5 + t * 7) + 0.1 * up * (0.5 + 0.5 * Math.sin(i * 2.1 + t * 6))); const [px, py] = pt(a, r); fl(px, py, (1 + 3.4 * up) * s, (0.8 + 2.6 * up) * s, 0, '#ffffff', 0.35 + 0.6 * up); }
+  if (!lite && open < 0.5) { ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 0.7; for (let i = 0; i < 12; i++) { const a = -Math.PI / 2 + (hash(i + 30) - 0.5) * 1.6, f = (t * 1.6 + hash(i + 31)) % 1, rr = re * (1 - 0.05 - f * 0.35); const [px, py] = pt(a, rr); ctx.globalAlpha = al * (1 - f) * (1 - open * 2); ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px + 1, py + 4 + 4 * f); ctx.stroke(); } }
+  if (open > 0) for (const a of [a0 - hw, a0 + hw]) for (let i = 1; i < 12; i++) { const r = re + (Math.min(edge, Math.hypot(W, H)) - re) * (i / 12), z = (2 + 3 * hash(i + a * 10)) * s; const [px, py] = pt(a + 0.03 * Math.sin(i + t * 6), r); fl(px, py, z, z * 0.7, 0, '#ffffff', 0.8); }
   ctx.restore();
 }
 function drawBarrelWorld() {
@@ -1603,19 +1612,21 @@ function drawBarrelWorld() {
 function drawBarrelRoll() {   // v068: drawn under him — he rides into it, and flies out over it
   const B = G.barrel; if (!B || B.scene) return;
   if (B.ph === 'enter' || B.ph === 'out') {   // v067: the curl rolls up into the tube (and back out into the wave)
-    const D = drum(), e = k => k * k * (3 - 2 * k), k = B.ph === 'enter' ? e(Math.min(1, B.t / BRL.enterT)) : 1 - e(Math.min(1, B.t / BRL.outT));
+    const D = drum(), e = k => k * k * (3 - 2 * k), lin = B.ph === 'enter' ? Math.min(1, B.t / BRL.enterT) : 1 - Math.min(1, B.t / BRL.outT), k = e(lin), top = G.camY - VOFF();
     const lx = Math.max(10, sx(0) + 30), ly = Y_TOP + 6, cx = lx + (sx(D.cx) - lx) * k, cy = ly + (D.cy - ly) * k;
-    drawTube(cx, cy, 0.25 + 0.75 * k, k, B.ph === 'out' ? 1 : 0, G.T);
+    ctx.globalAlpha = Math.max(0, Math.min(1, (lin - 0.35) / 0.6)) * 0.92; R(-30, top - 30, W + 60, H + 60, tubeCols()[5]); ctx.globalAlpha = 1;   // v069: the open wave sinks into the water's colour, so nothing jumps when the tube closes (or opens)
+    drawTube(cx, cy, 0.22 + 0.78 * k, Math.min(1, lin * 1.25), B.ph === 'out' ? 1 : 0, G.T);
   }
 }
 function drawDrum() {
   const B = G.barrel, D = drum(), t = G.T, cx = sx(D.cx), cy = D.cy, Rr = D.R, top = G.camY - VOFF();
   drawTube(cx, cy, 1, 1, B.open, t);
+  const eR = tubeBend(D, D.R), wx0 = cx + (sx(D.ex) - cx) * eR, wy0 = cy + (D.ey - cy) * eR;   // v069: the ring he rides sits a little towards the eye
   // the wake top left, the target of the way out
   if (B.ph === 'sky' || B.climb) { const a = BRL.wakeA, pulse = 0.6 + 0.4 * Math.sin(t * 10);
-    ctx.strokeStyle = 'rgba(255,226,106,' + pulse + ')'; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(cx, cy, Rr + 2, a - BRL.early, a + BRL.late); ctx.stroke();
-    for (let i = 0; i < 7; i++) { const aa = a - 0.15 + i * 0.05, r = Rr + 6 + 3 * Math.sin(i + t * 9); E(cx + Math.cos(aa) * r, cy + Math.sin(aa) * r, 3.5, 2.5, '#ffffff'); }
-    const [wx, wy] = [cx + Math.cos(a) * (Rr - 20), cy + Math.sin(a) * (Rr - 20)]; ctx.textAlign = 'center'; ctx.font = '700 7px ' + FONT; ctx.lineWidth = 2; ctx.strokeStyle = '#3a2000'; ctx.strokeText('THE WAKE', wx, wy); ctx.fillStyle = '#fff2a0'; ctx.fillText('THE WAKE', wx, wy); }
+    ctx.strokeStyle = 'rgba(255,226,106,' + pulse + ')'; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(wx0, wy0, Rr + 2, a - BRL.early, a + BRL.late); ctx.stroke();
+    for (let i = 0; i < 7; i++) { const aa = a - 0.15 + i * 0.05, r = Rr + 6 + 3 * Math.sin(i + t * 9); E(wx0 + Math.cos(aa) * r, wy0 + Math.sin(aa) * r, 3.5, 2.5, '#ffffff'); }
+    const [wx, wy] = [wx0 + Math.cos(a) * (Rr - 20), wy0 + Math.sin(a) * (Rr - 20)]; ctx.textAlign = 'center'; ctx.font = '700 7px ' + FONT; ctx.lineWidth = 2; ctx.strokeStyle = '#3a2000'; ctx.strokeText('THE WAKE', wx, wy); ctx.fillStyle = '#fff2a0'; ctx.fillText('THE WAKE', wx, wy); }
   // hearts, monsters, shots
   for (const h of B.hearts) { if (h.dr.t < 0) continue; const k = 0.35 + 0.65 * Math.pow(h.dr.r / Rr, 1.3); ctx.drawImage(HEART_SPR, sx(h.x) - 3.5 * k, h.y - 3.2 * k, 7 * k, 6.4 * k); }
   for (const f of B.fly) ctx.drawImage(HEART_SPR, sx(f.x) - 3.5, f.y - 3.2, 7, 6.4);
@@ -1629,7 +1640,7 @@ function drawDrum() {
   for (const s of B.shots) { ctx.save(); ctx.translate(sx(s.x), s.y); ctx.rotate(s.ang); ctx.drawImage(STAMP_SPR, -3, -3.5, 6, 7); ctx.restore(); }
   drawBoom();
   drawRider();
-  if (B.ph === 'sky' && !B.climb) { const [x, y] = [G.riderOv ? G.riderOv.x : cx, G.y - 40], sc = 1 + 0.12 * Math.sin(t * 14); ctx.save(); ctx.translate(x, y); ctx.scale(sc, sc); ctx.textAlign = 'center'; ctx.font = '700 14px ' + FONT; ctx.lineWidth = 3; ctx.strokeStyle = '#0a2630'; ctx.strokeText('HOLD A', 0, 0); ctx.fillStyle = '#fff2a0'; ctx.fillText('HOLD A', 0, 0); ctx.font = '600 6.5px ' + FONT; ctx.lineWidth = 2; ctx.strokeText('let go at the wake', 0, 10); ctx.fillStyle = '#ffffff'; ctx.fillText('let go at the wake', 0, 10); ctx.restore(); }
+  if (B.ph === 'sky' && !B.climb && !B.launch) { const [x, y] = [G.riderOv ? G.riderOv.x : cx, G.y - 40], sc = 1 + 0.12 * Math.sin(t * 14); ctx.save(); ctx.translate(x, y); ctx.scale(sc, sc); ctx.textAlign = 'center'; ctx.font = '700 14px ' + FONT; ctx.lineWidth = 3; ctx.strokeStyle = '#0a2630'; ctx.strokeText('HOLD A', 0, 0); ctx.fillStyle = '#fff2a0'; ctx.fillText('HOLD A', 0, 0); ctx.font = '600 6.5px ' + FONT; ctx.lineWidth = 2; ctx.strokeText('let go at the wake', 0, 10); ctx.fillStyle = '#ffffff'; ctx.fillText('let go at the wake', 0, 10); ctx.restore(); }
   if (B.ph === 'in' && B.t < 2.2) { ctx.globalAlpha = Math.min(1, (2.2 - B.t) * 1.5); ctx.textAlign = 'center'; ctx.font = '700 15px ' + FONT; ctx.lineWidth = 3; ctx.strokeStyle = '#06303a'; ctx.strokeText('BARRELED!', cx, top + 34); ctx.fillStyle = '#bff8ff'; ctx.fillText('BARRELED!', cx, top + 34); ctx.font = '600 7px ' + FONT; ctx.lineWidth = 2; ctx.strokeText('A — leap and dive · D — jump (off a mussel: big jump)', cx, top + 46); ctx.fillStyle = '#ffffff'; ctx.fillText('A — leap and dive · D — jump (off a mussel: big jump)', cx, top + 46); ctx.globalAlpha = 1; }
 }
 function updCat(dt) {
@@ -1934,6 +1945,7 @@ function update(dt) {
   }
   G.KH = G.KH.filter(h => !h.done);
   if (G.inv > 0) G.inv -= dt;
+  if (G.spit > 0) G.spit -= dt;
   if (G.magT > 0) G.magT -= dt;
   if (G.dim > 0) G.dim -= dt;
   if (G.shake > 0) G.shake -= dt;
@@ -2308,7 +2320,7 @@ function drawRider() {
   const st = inputState();
   const tr = G.air && G.trick ? G.trick.tier : -1;
   const pose = ov ? ov.pose : (G.stumble > 0 || G.wipe > 0) ? 'stumble' : G.diveT > 0 ? 'dive' : G.dashT > 0 ? 'dash' : tr === 1 ? 'grab' : G.air ? 'air' : st === 'brake' ? 'brake' : G.boostM > 0 ? 'fast' : 'ride';
-  const shield = ov ? ov.shield : !!(G.cyc && G.cyc.ph === 'dash');   // v064: the A leap and dive: untouchable, and now you can see it
+  const shield = ov ? ov.shield : !!(G.cyc && G.cyc.ph === 'dash') || G.spit > 0;   // v064: the A leap and dive: untouchable, and now you can see it
   const body = (bx, by) => {
     ctx.save();
     ctx.translate(bx, by); ctx.scale(1.2, 1.2);

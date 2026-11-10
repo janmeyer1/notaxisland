@@ -176,3 +176,8 @@ The built file keeps comments and the original formatting.
 ## v068 — barrel tunnel
 - `drum()` adds `ex, ey` (the wandering eye; side view: = centre); `dpos(D, th, r)` bends positions with `r < R` towards the eye. `tubeSpin()` (rad/s, stage and boost). `BRL.view` defaults to `'behind'`. `G.barrel.launch = { t, th }` (the take-off, 0.6 s) before `exitDrum('spit', [x, y])`. `drawBarrelRoll()` draws the rolling tube under the rider (before `drawRider`), `drawBarrelWorld()` keeps the curtain and the PULL IN sign.
 
+## v069 — barrel settled in, review tests
+- `drum()`: eye right of the middle; `tubeBend(D, r)` (0 … 1, squared depth) used by `dpos` and `drawTube`; `tubeCols()` returns twelve `rgb()` shades; `TB.c` the small canvas of the tube's water; `drawTube` paints water into `TB` (source-atop light/shade, destination-out feathering) and the white water on the main canvas.
+- `BRL.waitAt`, `B.waited`, `B.gone` (the herald holds while he is busy); `BRL.enterT` 1.1, `BRL.outT` 0.8; `G.spit` (seconds of safe flight, checked in `hurt`, shown by the shield).
+- Tests: `test_android.py` (Pixel 7 emulation; writes `../android_report.json`), `test_haupt_v069.py` (`known()` prints OPEN for findings of the review).
+

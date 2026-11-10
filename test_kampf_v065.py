@@ -38,6 +38,17 @@ async def main():
         check(all(o[str(n)]['barrels'] == 0 for n in [20, 21, 22, 24, 26]) and all(o[str(n)]['barrels'] == 1 for n in [27, 28, 30]), f'one barrel per stage from 27, none before ({o})')
         check('NEW: POISON CLOUDS' in r['m']['20'] and 'POISON CLOUDS' in r['m']['21'] and 'THE BARREL' in r['m']['27'] and 'THE BARREL' in r['m']['28'], f'lesson cards: clouds at 20 and 21, the barrel at 27 and 28 ({r["m"]})')
 
+        r = await pg.evaluate("""(() => { localStorage.setItem('robinson_tutorials', 'on'); const out = {}; for (const n of [27, 28, 29]) { const st = KAMPF.stageDef({ stage: n, kind: 'wave' }), L = KAMPF.buildLevel(st, KAMPF.mulberry32(5)), b = L.ev.find(e => e.k === 'barrel');
+          const before = L.ev.filter(e => e.k !== 'hrow' && e.k !== 'barrel' && e.w < b.w).reduce((m, e) => Math.max(m, e.w), 0); out[n] = { first: L.msgs[0].lines[0], quiet: +((b.w - before) / st.v).toFixed(1) }; }
+          localStorage.setItem('robinson_tutorials', 'off'); return out; })()""")
+        check(r['27']['first'] == 'NEW: THE BARREL' and r['28']['first'] == 'THE BARREL AGAIN' and r['29']['first'].startswith('Stage 29'), f'stage 27 and 28 open with the barrel card, not "more of everything" ({r})')
+        check(all(r[k]['quiet'] >= 3.5 for k in r), f'at least 3.5 s of open water before every barrel ({[r[k]["quiet"] for k in r]})')
+        await pg.evaluate("T65.start(27); T65.step(1.0); T65.calm(); KAMPF.startBarrel(); T65.step(2.0); 1")
+        r = await pg.evaluate("""(() => { const G = KAMPF.G, B = G.barrel; T65.press('a'); T65.release('a'); const cyc = !!G.cyc; let held = 0, tmax = 0; T65.step(2.0, () => { if (G.cyc && B.t === KAMPF.BRL.waitAt) held++; tmax = Math.max(tmax, B.t); });
+          let n = 0; while (G.cyc && n++ < 600) T65.step(1 / 60); const free = B.ph + ' ' + B.t.toFixed(2); T65.step(0.7); T65.press('a'); T65.step(1.6); T65.release('a'); return [cyc, held > 30, +tmax.toFixed(2), free, !!B.scene]; })()""")
+        check(r[0] and r[1] and r[2] <= 2.71 and r[4], f'an A leap just before the barrel: the wave waits until he is back on the water, then PULL IN still works ({r})')
+        r = await pg.evaluate("""(() => { T65.start(27); T65.step(1.0); T65.calm(); KAMPF.startBarrel(); T65.step(2.0); const G = KAMPF.G, B = G.barrel; T65.press('d'); T65.release('d'); T65.step(1.2); return [+B.t.toFixed(1), B.ph]; })()""")
+        check(r[0] >= 3.1, f'a D hop does not hold the wave back ({r})')
         print('2 · the poison cloud: the rain falls where he rides; the A climb and leap take him out, much too early = rain again')
         await pg.evaluate("T65.start(22)"); await pg.evaluate("T65.step(1.0)")
         async def cloud_case(pre, tap_at, key='a'):
@@ -90,7 +101,7 @@ async def main():
         ks = r['K']; drops = sum(1 for i in range(1, len(ks) - 1) if ks[i] > ks[i - 1] and ks[i] > ks[i + 1])
         check(r['ph'] == 'herald' and drops >= 2 and max(ks) >= 2.85, f'the curl swells and falls back twice, then goes over (peaks {drops}, max {max(ks)})')
         if SHOTS: await pg.wait_for_timeout(120); await pg.screenshot(path=SHOTS + '/k_pullin.png')
-        r = await pg.evaluate("""(() => { const G = KAMPF.G, B = G.barrel; T65.press('a'); T65.step(0.2); const mid = [B.ph, !G.cyc]; T65.step(1.2); return [mid, B.ph, !!B.scene, B.th]; })()""")
+        r = await pg.evaluate("""(() => { const G = KAMPF.G, B = G.barrel; T65.press('a'); T65.step(0.2); const mid = [B.ph, !G.cyc]; T65.step(1.5); return [mid, B.ph, !!B.scene, B.th]; })()""")
         check(r[0] == ['herald', True] and r[1] == 'in' and r[2], f'HOLD A in the window: no ordinary leap, after 0.25 s he pulls in ({r})')
         r = await pg.evaluate("""(() => { const G = KAMPF.G, B = G.barrel, s0 = G.stam, k0 = G.kills; T65.release('a'); let mons = 0, mus = 0, hearts = 0, shots = 0;
           T65.step(3.0, () => { mons = Math.max(mons, B.mons.filter(m => m.type !== 'm').length); mus = Math.max(mus, B.mons.filter(m => m.type === 'm').length); hearts = Math.max(hearts, B.hearts.length); shots = Math.max(shots, B.shots.length); });
@@ -107,7 +118,7 @@ async def main():
         check(r[0][0] == 'clear' and 0 < r[0][1] < 1 and r[1] == 'sky' and r[2] == 1, f'after 10 s the drum opens top right, then the sky shows ({r})')
         if SHOTS: await pg.wait_for_timeout(150); await pg.screenshot(path=SHOTS + '/k_sky.png')
         r = await pg.evaluate("""(() => { const G = KAMPF.G, B = G.barrel; T65.press('a'); let n = 0; while (B.scene && B.th < KAMPF.BRL.wakeA - 0.04 && n++ < 400) T65.step(1 / 60);
-          const th = B.th; T65.release('a'); T65.step(1 / 60); const launch = !!B.launch; T65.step(0.65); return [B.kind, +th.toFixed(2), G.air, Math.round(G.vy), G.inv > 0, launch]; })()""")
+          const th = B.th; T65.release('a'); T65.step(1 / 60); const launch = !!B.launch; T65.step(0.65); return [B.kind, +th.toFixed(2), G.air, Math.round(G.vy), G.spit > 0, launch]; })()""")
         check(r[0] == 'spit' and r[2] and r[3] < 0 and r[4] and r[5], f'HOLD A up the wall, let go at the wake: a take-off, then SPIT! — he is thrown into the sky ({r})')
         r = await pg.evaluate("""(() => { const G = KAMPF.G; return [Math.round(KAMPF.ysAt(Math.max(3, G.u), G.S) - G.y)]; })()""")
         check(r[0] > 150, f'he flies high above the wave ({r})')
@@ -115,7 +126,7 @@ async def main():
 
         print('5 · the barrel: the misses')
         async def into_drum():
-            await barrel_to_window(); await pg.evaluate("T65.press('a'); T65.step(1.4); T65.release('a'); T65.calm(); KAMPF.G.barrel.t = 9.9; T65.step(0.2); 1")
+            await barrel_to_window(); await pg.evaluate("T65.press('a'); T65.step(1.7); T65.release('a'); T65.calm(); KAMPF.G.barrel.t = 9.9; T65.step(0.2); 1")
         await barrel_to_window()
         r = await pg.evaluate("""(() => { const G = KAMPF.G, B = G.barrel, s0 = G.stam; T65.step(1.0); return [B.ph, s0 - G.stam, G.barrel ? 1 : 0]; })()""")
         check(r[0] == 'crash' and r[1] == 6, f'no pull-in: the lip lands on him — stamina damage, then on as normal ({r})')
