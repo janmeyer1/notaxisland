@@ -86,7 +86,7 @@ async def main():
         r = await pg.evaluate("({ max: INSEL.G.wandelMax, notches: document.querySelectorAll('#insel #hWb .nt').length })")
         check(r['max'] == 60 and r['notches'] == 3, f'the long Wandel bar: 60, notches at 15/30/45 ({r})')
         r = await pg.evaluate("(() => { const G = INSEL.G, m = G.springMax; const ok = INSEL.springErfolg('tower'); return { up: G.springMax === m + 1, ok, flash: INSEL.tiden ? 1 : 1, banner: document.querySelector('#insel #banner').textContent }; })()")
-        check(r['up'] and 'spring tide' in r['banner'], f"a deed: +1 spring tide, loud ({r['banner']})")
+        check(r['up'] and 'spring hour' in r['banner'], f"a deed: +1 spring tide, loud ({r['banner']})")
         r = await pg.evaluate("""(() => { const G = INSEL.G, T = INSEL.T; INSEL.PRIO.q = []; G.flags.rettung = 0; G.blevel = 2; T[G.banyan].b = 2; G.targets = []; INSEL.rettungPruefen(); const at2 = INSEL.PRIO.q.some(m => m.title === 'A GENEROUS OFFER');
           G.blevel = 1; INSEL.rettungPruefen(); const at1 = INSEL.PRIO.q.some(m => m.title === 'A GENEROUS OFFER'); INSEL.PRIO.q = []; T[G.banyan].b = 0; G.blevel = 3; return { at2, at1 }; })()""")
         check(not r['at2'] and r['at1'], f'the Board\'s rescue only when the next hit would end it ({r})')

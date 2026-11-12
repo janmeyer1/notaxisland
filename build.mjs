@@ -133,7 +133,10 @@ function pages(html, lab) {
     return `<li><div><a href="${b.f}">Robinson v${String(b.v).padStart(3, '0')}${i ? '' : ' · newest'}</a>${n ? `<br><span>${esc(n.t)}</span>` : ''}</div><small>${n && n.d ? n.d + '<br>' : ''}${lines.toLocaleString('en')} lines · ${b.kb.toFixed(0)} KB</small></li>`; }).join('\n');
   fs.writeFileSync(path.join(dir, 'index.html'), head('Robinson builds') + css + `</head><body><h1>Robinson builds</h1>\n<p><a href="barrel_lab.html">🧪 Barrel lab</a> <small>— the barrel on its own, newest build</small></p>\n<ul>\n${rows}\n</ul></body></html>\n`);
   const top = all[0].f;
-  fs.writeFileSync(path.join(ROOT, 'index.html'), head('Robinson') + `<meta http-equiv="refresh" content="0; url=builds/${top}">\n` + css + `</head><body><p>Washing ashore… <a href="builds/${top}">play the newest build</a> · <a href="builds/">all builds</a></p></body></html>\n`);
+  // v070: play.html = the newest build under a fixed address, installable (manifest) and playable offline (sw.js)
+  const head2 = '<link rel="manifest" href="manifest.webmanifest">\n<link rel="icon" href="icon-192.png">\n<title>', sw = "<script>if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});</script>\n</body>";
+  if (html.includes('<title>') && html.includes('</body>')) { const i = html.lastIndexOf('</body>'); fs.writeFileSync(path.join(ROOT, 'play.html'), (html.slice(0, i) + sw + html.slice(i + 7)).replace('<title>', () => head2)); }
+  fs.writeFileSync(path.join(ROOT, 'index.html'), head('Robinson') + `<meta http-equiv="refresh" content="0; url=play.html">\n` + css + `</head><body><p>Washing ashore… <a href="play.html">play Robinson</a> (${top.replace('robinson_', '').replace('.html', '')}) · <a href="builds/">all builds</a></p></body></html>\n`);
   console.log(`builds/: ${all.length} versions listed, index.html -> builds/${top}`);
 }
 build();

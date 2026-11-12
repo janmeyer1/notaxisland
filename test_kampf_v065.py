@@ -32,16 +32,19 @@ async def main():
         print('1 · the stage scripts: cloud lessons at 20 and 21, one barrel per stage from 25')
         r = await pg.evaluate("""(() => { const out = {}; for (const n of [20, 21, 22, 24, 26, 27, 28, 30]) { const st = KAMPF.stageDef({ stage: n, kind: 'wave' }), L = KAMPF.buildLevel(st, KAMPF.mulberry32(5));
           out[n] = { barrels: L.ev.filter(e => e.k === 'barrel').length, clouds: L.ev.filter(e => e.k === 'cloud').length }; }
-          localStorage.setItem('robinson_tutorials', 'on'); const m = {}; for (const n of [20, 21, 27, 28]) { const L = KAMPF.buildLevel(KAMPF.stageDef({ stage: n, kind: 'wave' }), KAMPF.mulberry32(5)); m[n] = L.msgs.map(x => x.lines && x.lines[0]).join('|'); }
+          localStorage.setItem('robinson_tutorials', 'on'); const m = {}; for (const n of [20, 21, 27, 28]) { const L = KAMPF.buildLevel(KAMPF.stageDef({ stage: n, kind: 'wave', seen: n < 27 ? { eelL: 1, cloudL: n - 20 } : { eelL: 1, cloudL: 2, barrelL: n - 27 } }), KAMPF.mulberry32(5)); m[n] = L.msgs.map(x => x.lines && x.lines[0]).join('|'); }
           localStorage.setItem('robinson_tutorials', 'off'); return { out, m }; })()""")
         o = r['out']
         check(all(o[str(n)]['barrels'] == 0 for n in [20, 21, 22, 24, 26]) and all(o[str(n)]['barrels'] == 1 for n in [27, 28, 30]), f'one barrel per stage from 27, none before ({o})')
         check('NEW: POISON CLOUDS' in r['m']['20'] and 'POISON CLOUDS' in r['m']['21'] and 'THE BARREL' in r['m']['27'] and 'THE BARREL' in r['m']['28'], f'lesson cards: clouds at 20 and 21, the barrel at 27 and 28 ({r["m"]})')
 
-        r = await pg.evaluate("""(() => { localStorage.setItem('robinson_tutorials', 'on'); const out = {}; for (const n of [27, 28, 29]) { const st = KAMPF.stageDef({ stage: n, kind: 'wave' }), L = KAMPF.buildLevel(st, KAMPF.mulberry32(5)), b = L.ev.find(e => e.k === 'barrel');
+        r = await pg.evaluate("""(() => { localStorage.setItem('robinson_tutorials', 'on'); const out = {}; for (const n of [27, 28, 29]) { const st = KAMPF.stageDef({ stage: n, kind: 'wave', seen: { eelL: 1, cloudL: 2, barrelL: n - 27 } }), L = KAMPF.buildLevel(st, KAMPF.mulberry32(5)), b = L.ev.find(e => e.k === 'barrel');
           const before = L.ev.filter(e => e.k !== 'hrow' && e.k !== 'barrel' && e.w < b.w).reduce((m, e) => Math.max(m, e.w), 0); out[n] = { first: L.msgs[0].lines[0], quiet: +((b.w - before) / st.v).toFixed(1) }; }
           localStorage.setItem('robinson_tutorials', 'off'); return out; })()""")
-        check(r['27']['first'] == 'NEW: THE BARREL' and r['28']['first'] == 'THE BARREL AGAIN' and r['29']['first'].startswith('Stage 29'), f'stage 27 and 28 open with the barrel card, not "more of everything" ({r})')
+        check(r['27']['first'] == 'NEW: THE BARREL' and r['28']['first'] == 'THE BARREL AGAIN' and r['29']['first'].startswith('Stage 29'), f'the first two stages that bring a barrel open with its card, not "more of everything" ({r})')
+        r2 = await pg.evaluate("""(() => { const first = (n, seen, tut) => { localStorage.setItem('robinson_tutorials', tut); const L = KAMPF.buildLevel(KAMPF.stageDef({ stage: n, kind: 'wave', seen }), KAMPF.mulberry32(5)); localStorage.setItem('robinson_tutorials', 'off'); return L.msgs.length ? L.msgs[0].lines[0] : null; };
+          return [first(33, {}, 'on'), first(33, { barrelL: 2 }, 'on'), first(33, { barrelL: 2, cloudL: 2 }, 'on'), first(33, { barrelL: 2, cloudL: 2, eelL: 1 }, 'on'), first(27, {}, 'off'), first(12, {}, 'off')]; })()""")
+        check(r2 == ['NEW: THE BARREL', 'NEW: POISON CLOUDS', 'NEW: BLACK EELS', 'Stage 33', 'NEW: THE BARREL', None], f'lessons go by what he has met: jumping in at stage 33 still teaches barrel, clouds, eels in turn; new-monster cards come even with the tutorials off ({r2})')
         check(all(r[k]['quiet'] >= 3.5 for k in r), f'at least 3.5 s of open water before every barrel ({[r[k]["quiet"] for k in r]})')
         await pg.evaluate("T65.start(27); T65.step(1.0); T65.calm(); KAMPF.startBarrel(); T65.step(2.0); 1")
         r = await pg.evaluate("""(() => { const G = KAMPF.G, B = G.barrel; T65.press('a'); T65.release('a'); const cyc = !!G.cyc; let held = 0, tmax = 0; T65.step(2.0, () => { if (G.cyc && B.t === KAMPF.BRL.waitAt) held++; tmax = Math.max(tmax, B.t); });

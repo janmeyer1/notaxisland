@@ -90,7 +90,7 @@ body:not(.tester) .testonly{display:none!important}
 
 #strand #tideBar{background:rgba(255,255,255,.18)}#strand #tideBar>i{background:linear-gradient(90deg,#1f8aa6,#5fd3c7)}
 #strand #topRight{right:max(10px,env(safe-area-inset-right));top:10px;display:flex;gap:8px;align-items:center;pointer-events:auto}
-#strand #mute{border:0;background:none;font:inherit;font-size:clamp(14px,3vh,20px);cursor:pointer;color:var(--ink)}
+#strand #mute{border:0;background:none;font:inherit;font-size:clamp(14px,3vh,20px);cursor:pointer;color:var(--ink);min-width:44px;min-height:44px}
 #strand .hbtn{position:absolute;bottom:14px;pointer-events:auto;border:0;cursor:pointer;font:600 clamp(13px,2.8vh,18px) 'Fredoka',sans-serif;color:var(--paper);padding:9px 16px;border-radius:14px;display:none}
 #strand #ledgerBtn{right:max(14px,env(safe-area-inset-right));background:#24306a;box-shadow:0 3px 0 #0f1638;color:#ffe9b0}
 #strand #rulesBtnB{background:#fff6e3;color:#3b2a1a;box-shadow:0 3px 0 #c9b48a}   /* v044 */
@@ -133,7 +133,8 @@ body:not(.tester) .testonly{display:none!important}
   box-shadow:0 -4px 0 0 #2a1840,0 4px 0 0 #2a1840,-4px 0 0 0 #2a1840,4px 0 0 0 #2a1840,inset 0 -4px 0 0 #e08a4a,inset 0 4px 0 0 #fff2c0;animation:tlPulse 2.4s ease-in-out infinite}
 #strand #tlCont{font:700 18px 'Pixelify Sans',monospace;letter-spacing:.06em;color:#fff6e3;background:#2f7f6f;border:0;padding:8px 20px;cursor:pointer;box-shadow:0 4px 0 #1d4f45}#strand #tlCont:hover{background:#3b9583}
 #strand #waitBtn.pulse{animation:mapHint 1.2s ease-in-out infinite}#strand .spr{color:#ffd36a}
-#strand #tlTut{font:600 13px 'Pixelify Sans',monospace;letter-spacing:.05em;color:#e9dcc0;background:transparent;border:1.5px solid rgba(233,220,192,.5);padding:4px 12px;cursor:pointer}#strand #tlTut.off{color:#9a8f7a;border-style:dashed}   /* v061 */
+#strand #tlRow{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+#strand #tlTut,#strand #tlGfx{font:600 13px 'Pixelify Sans',monospace;letter-spacing:.05em;color:#e9dcc0;background:transparent;border:1.5px solid rgba(233,220,192,.5);padding:12px 16px;min-height:44px;cursor:pointer}#strand #tlTut.off{color:#9a8f7a;border-style:dashed}   /* v061 */
 #strand #tlStart:hover{background:#ffe6a0}#strand #tlStart:active{transform:translateY(2px)}
 @keyframes tlPulse{0%,100%{filter:brightness(1)}50%{filter:brightness(1.12)}}
 @media (prefers-reduced-motion:reduce){#strand #tlStart{animation:none}}
@@ -285,7 +286,7 @@ body:not(.tester) .testonly{display:none!important}
 #insel #hBoss{display:none;border:1.5px solid rgba(170,120,255,.6)}#insel #hBoss b{color:#c9a8ff}
 #insel /* v005: explanation UI */
 .wv{display:inline-block;font-size:13px;line-height:1;margin-right:-1px;transition:filter .3s,opacity .3s}#insel .wv.off{filter:grayscale(1);opacity:.3}
-#insel #hTideP{position:fixed;right:12px;top:10px;z-index:5;pointer-events:auto;-webkit-touch-callout:none;user-select:none;display:flex;align-items:center;gap:6px;flex-wrap:wrap}#insel #hTideP .num{font-size:12px;opacity:.85}#insel #hWaves{display:none}#insel #hG{display:none}#insel #bMenu{margin-left:6px;padding:0 8px;font:600 16px Fredoka;border:0;border-radius:8px;background:rgba(255,246,227,.2);color:#fff6e3;cursor:pointer}   /* v036: tide number + menu top right; the tides are on the compass */
+#insel #hTideP{position:fixed;right:12px;top:10px;z-index:5;pointer-events:auto;-webkit-touch-callout:none;user-select:none;display:flex;align-items:center;gap:6px;flex-wrap:wrap}#insel #hTideP .num{font-size:12px;opacity:.85}#insel #hWaves{display:none}#insel #hG{display:none}#insel #bMenu{margin-left:6px;padding:0 8px;font:600 16px Fredoka;border:0;border-radius:8px;background:rgba(255,246,227,.2);color:#fff6e3;cursor:pointer;min-width:44px;min-height:44px}   /* v036: tide number + menu top right; the tides are on the compass */
 #insel #hWp .wrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 #insel .wbar{position:relative;width:120px;height:9px;border-radius:5px;background:rgba(255,255,255,.16);overflow:hidden}
 #insel .wbar i{position:absolute;top:0;bottom:0;transition:left .4s,width .4s}#insel .wbar .ws{background:#6fc35a}#insel .wbar .wf{background:#ffd45a}
@@ -365,7 +366,7 @@ body:not(.tester) .testonly{display:none!important}
 <div id="ui"><button id="bRules">📖 Rules<span class="badge" id="rBadge"></span></button><button id="bBeach" title="To the beach (low tide only)">🏖 Beach</button><button id="bEnd">End ebb</button></div>
 <div id="toast"></div><div class="chat" id="chatT"><span class="who">🐢 Tortoise</span><div class="lines"></div></div><div class="chat" id="chatB"><span class="who">💼 Briefcase</span><div class="lines"></div></div><div id="banner"></div>
 <div id="card"><div class="cardbox"><h2 id="cardT"></h2><div id="cardB"></div><button id="cardBtn">OK</button></div></div>
-<div id="info"><button id="bReport">📋 Beach report<span class="badge" id="repBadge">new</span></button><span></span><button id="bLedger" style="display:none">💼 Intercepted Memos<span class="badge" id="lBadge">new</span></button><button id="bHome" title="Back to the default view">⌖ View</button><button id="bTiles">Tile borders: on</button><button id="bSnd">Sound: on</button><select id="scen"><option value="real">beach: real</option><option value="typical">beach: typical</option><option value="tough">beach: tough</option><option value="smooth">beach: smooth</option></select></div>
+<div id="info"><button id="bReport">📋 Beach report<span class="badge" id="repBadge">new</span></button><span></span><button id="bLedger" style="display:none">💼 Intercepted Memos<span class="badge" id="lBadge">new</span></button><button id="bHome" title="Back to the default view">⌖ View</button><button id="bTiles">Tile borders: on</button><button id="bSnd">Sound: on</button><button id="bGfx">Graphics: auto</button><select id="scen"><option value="real">beach: real</option><option value="typical">beach: typical</option><option value="tough">beach: tough</option><option value="smooth">beach: smooth</option></select></div>
 <div id="treeScr"><div class="tbox"><button id="tClose">✕</button><h2>The Banyan</h2><div class="row" id="tTop"></div><div class="tmain"><canvas id="tFlow"></canvas></div><div class="row" id="tNext"></div><div class="row" id="tCtl"></div><div id="tDreamRow"><span id="tDreamHint"></span><button id="tDream">☾ Dream</button></div></div></div>
 <div id="prio"><div class="pbox"><div class="stamp">CONFIDENTIAL</div><div class="pwho" id="pWho"></div><h2 class="ptitle" id="pTitle"></h2><canvas id="pIll" width="560" height="240"></canvas><div class="ptext" id="pText"></div><button class="pbtn" id="pBtn">Noted</button><button class="pbtn" id="pBtn2"></button></div></div>
 <div id="fight"><div class="fbox"><h2 id="fT"></h2><div id="fB"></div><div class="row"><button id="fSim">Simulate</button><button id="fLose">Lost</button><button id="fWin">Won</button><button id="fGo" style="display:none">⚔ To the beach</button></div></div></div>

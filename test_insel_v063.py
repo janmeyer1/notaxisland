@@ -32,7 +32,7 @@ async def main():
         for _ in range(10): await pg.evaluate(CLOSE); await pg.wait_for_timeout(150)
         print('1 · the T40 shortcut (Jan\'s v062 run); the old wipe is withdrawn')
         r = await pg.evaluate("[INSEL.G.tide, STRAND.S.day, INSEL.G.fiWipe === undefined, Object.keys(INSEL.PET_CODES).join()]")
-        check(r[0] == 40 and r[1] == 40 and r[2] and r[3] == 'T20,T30,T40,T51', f'T40 loads tide 40, no wipe pending, island codes T20/T30/T40/T51 ({r})')
+        check(r[0] == 40 and r[1] == 40 and r[3] == 'T20,T30,T40,T51', f'T40 loads tide 40 (v070: the wipe memo of that run stays pending), island codes T20/T30/T40/T51 ({r})')
         print('2 · roots start at 1; a withered root waits a whole flood')
         r = await pg.evaluate("""(() => { const G = INSEL.G, T = INSEL.T; const t = T.find(x => !x.rooted && x.reg !== 5 && x.b === 0 && !x.source && x.id !== G.cave); INSEL.setRooted(t, true); const rs = t.rs;
           INSEL.welken(t, 0, 0); const same = INSEL.welkNachwachsen(), stillWelk = t.welk && !t.rooted; [...t.nb].forEach(n => { if (T[n].reg !== 5) { T[n].rooted = true; T[n].rs = T[n].rs || 1; } });
@@ -82,8 +82,10 @@ async def main():
         check(r == ['Reply · offer declined/radio', 'Who is on the radio'], f'a first refusal: a threat on the radio, then the briefcase explains who is on that line ({r})')
         r = await pg.evaluate("""(() => { const P = INSEL.PRIO; P.q = []; INSEL.funkAntwort(true, 2); return new Promise(res => setTimeout(() => res(P.q.map(m => m.text.split('\\n')[1])), 1300)); })()""")
         check(r and r[0].startswith('Twice now'), f'a second acceptance: an even smugger reply ({r})')
-        r = await pg.evaluate("(() => { const G = INSEL.G; G.board.offers = 3; INSEL.fiTips && INSEL.fiTips(); return [G.fiWipe === undefined, INSEL.fiStufe()]; })()")
-        check(r[0], f'no wipe, however many offers ({r})')
+        r = await pg.evaluate("(() => { const G = INSEL.G, w0 = G.fiWipe; delete G.fiWipe; G.board.offers = 3; INSEL.fiTips && INSEL.fiTips(); const a = G.fiWipe === undefined; G.fiWipe = w0; return [a, INSEL.fiStufe()]; })()")
+        check(r[0], f'offers alone bring no wipe memo (v070: the second refusal on the radio does) ({r})')
+        r = await pg.evaluate("/B\\.declined >= 2\\) \\{[^}]*G\\.fiWipe = G\\.tide/.test(INSEL.boardOffer ? INSEL.boardOffer.toString() : Object.values(INSEL).filter(f => typeof f === 'function').map(f => f.toString()).join(''))")
+        check(r, 'the second refusal sets the wipe memo — Fi can be reached again')
         print('7 · the tile screen: Bad Omen and Overflow in their own sections; the trebuchet rolls no dice')
         r = await pg.evaluate("""(() => { const G = INSEL.G; INSEL.planFlood(true); const o = G.targets.find(id => G.tinfo[id].overflow && INSEL.T[id].state > 0), b = G.targets.find(id => !G.tinfo[id].overflow && INSEL.T[id].state > 0);
           const txt = id => { G.sel = id; INSEL.renderPanel(); return document.querySelector('#insel #panel').innerText; }; return [o !== undefined ? txt(o) : '', b !== undefined ? txt(b) : '']; })()""")

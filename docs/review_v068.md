@@ -117,3 +117,28 @@ Geprüft: Technik (auch Android), Spielmechanik, Erzähllogik, Erklärlogik. Gru
 - Zwei eigene Texte korrigiert (A7, ein Teil von A9).
 - Offen aus der Liste bleiben insbesondere A1–A6, A8 und A10.
 
+## 8. Mit v070 umgesetzt (2026-11-12)
+
+Alle Themen der Liste außer C8 (Vibration) und C9 (Bildschirm wach halten). Deine Entscheidungen: Aktionspunkte heißen „hours“, Insel-Druck moderat erhöhen, Fi wieder einschalten, „Wandel“/„Befall“ übersetzen (Kinship/Blight).
+
+| Thema | Stand |
+|---|---|
+| A1 Speichern in der Ebbe | umgesetzt; im Test bleibt die Änderung nach dem Neuladen erhalten |
+| A2 Speichern scheitert lautlos | umgesetzt (Warnung, zweiter Versuch, 8 statt 50 Zustände) |
+| A3 Android als Datei | Warnung auf dem Titel, wenn nichts gespeichert werden kann; echtes Gerät weiter ungeprüft |
+| A4 Beschädigter Spielstand | umgesetzt (fällt auf den Zustand davor zurück) |
+| A5 Logbuch +1 Ausdauer | Ursache war nicht das Logbuch: Jedes Laden würfelte die Krabben neu, und der Turm erledigte die Strandarbeit noch einmal. Behoben mit A1 |
+| A6 Erste Minute | umgesetzt (heller Hinweis, Gesten statt Tasten, Pfeile, Tippen zählt) |
+| A7, A9 Texte | umgesetzt |
+| A8, B6 Lektionen | umgesetzt (nach Erlebtem; Neuheiten-Karten auch bei „Tutorials aus“) |
+| A10 echtes Gerät | **offen** — kann nur an einem Gerät geprüft werden |
+| B1 Insel-Druck | umgesetzt wie gewählt, **wirkt aber kaum**: 19 → 15 Wurzeln, Banyan Ring 14 nach acht Fluten ohne Aktion. Bei sieben Speerspitzen mit rund 50 % wird fast immer etwas gehalten |
+| B2, B3 Senken und Turm | längere Upgrade-Leitern (bis Stufe 8), Turm-Formel mit 1,5 × Stage |
+| B4, B5, C2 Begriffe | hours, Wall Leap, Kinship, Blight |
+| B7 Fi | wieder eingeschaltet (zweite Funk-Absage) |
+| B8 Kahn | unbemannt |
+| B9 Sparmodus | auto / lite / full |
+| B10 Zurück-Taste | umgesetzt |
+| B11 Schnittstellen-Test | neu geschrieben |
+| C1, C3–C7 | umgesetzt (Touch-Flächen, Gegnerkarte, installierbar über `play.html`, `regeln_heute.md`, Nachtrag v8) |
+

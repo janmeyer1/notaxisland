@@ -90,7 +90,7 @@ body:not(.tester) .testonly{display:none!important}
 
 #strand #tideBar{background:rgba(255,255,255,.18)}#strand #tideBar>i{background:linear-gradient(90deg,#1f8aa6,#5fd3c7)}
 #strand #topRight{right:max(10px,env(safe-area-inset-right));top:10px;display:flex;gap:8px;align-items:center;pointer-events:auto}
-#strand #mute{border:0;background:none;font:inherit;font-size:clamp(14px,3vh,20px);cursor:pointer;color:var(--ink)}
+#strand #mute{border:0;background:none;font:inherit;font-size:clamp(14px,3vh,20px);cursor:pointer;color:var(--ink);min-width:44px;min-height:44px}
 #strand .hbtn{position:absolute;bottom:14px;pointer-events:auto;border:0;cursor:pointer;font:600 clamp(13px,2.8vh,18px) 'Fredoka',sans-serif;color:var(--paper);padding:9px 16px;border-radius:14px;display:none}
 #strand #ledgerBtn{right:max(14px,env(safe-area-inset-right));background:#24306a;box-shadow:0 3px 0 #0f1638;color:#ffe9b0}
 #strand #rulesBtnB{background:#fff6e3;color:#3b2a1a;box-shadow:0 3px 0 #c9b48a}   /* v044 */
@@ -133,7 +133,8 @@ body:not(.tester) .testonly{display:none!important}
   box-shadow:0 -4px 0 0 #2a1840,0 4px 0 0 #2a1840,-4px 0 0 0 #2a1840,4px 0 0 0 #2a1840,inset 0 -4px 0 0 #e08a4a,inset 0 4px 0 0 #fff2c0;animation:tlPulse 2.4s ease-in-out infinite}
 #strand #tlCont{font:700 18px 'Pixelify Sans',monospace;letter-spacing:.06em;color:#fff6e3;background:#2f7f6f;border:0;padding:8px 20px;cursor:pointer;box-shadow:0 4px 0 #1d4f45}#strand #tlCont:hover{background:#3b9583}
 #strand #waitBtn.pulse{animation:mapHint 1.2s ease-in-out infinite}#strand .spr{color:#ffd36a}
-#strand #tlTut{font:600 13px 'Pixelify Sans',monospace;letter-spacing:.05em;color:#e9dcc0;background:transparent;border:1.5px solid rgba(233,220,192,.5);padding:4px 12px;cursor:pointer}#strand #tlTut.off{color:#9a8f7a;border-style:dashed}   /* v061 */
+#strand #tlRow{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+#strand #tlTut,#strand #tlGfx{font:600 13px 'Pixelify Sans',monospace;letter-spacing:.05em;color:#e9dcc0;background:transparent;border:1.5px solid rgba(233,220,192,.5);padding:12px 16px;min-height:44px;cursor:pointer}#strand #tlTut.off{color:#9a8f7a;border-style:dashed}   /* v061 */
 #strand #tlStart:hover{background:#ffe6a0}#strand #tlStart:active{transform:translateY(2px)}
 @keyframes tlPulse{0%,100%{filter:brightness(1)}50%{filter:brightness(1.12)}}
 @media (prefers-reduced-motion:reduce){#strand #tlStart{animation:none}}
@@ -285,7 +286,7 @@ body:not(.tester) .testonly{display:none!important}
 #insel #hBoss{display:none;border:1.5px solid rgba(170,120,255,.6)}#insel #hBoss b{color:#c9a8ff}
 #insel /* v005: explanation UI */
 .wv{display:inline-block;font-size:13px;line-height:1;margin-right:-1px;transition:filter .3s,opacity .3s}#insel .wv.off{filter:grayscale(1);opacity:.3}
-#insel #hTideP{position:fixed;right:12px;top:10px;z-index:5;pointer-events:auto;-webkit-touch-callout:none;user-select:none;display:flex;align-items:center;gap:6px;flex-wrap:wrap}#insel #hTideP .num{font-size:12px;opacity:.85}#insel #hWaves{display:none}#insel #hG{display:none}#insel #bMenu{margin-left:6px;padding:0 8px;font:600 16px Fredoka;border:0;border-radius:8px;background:rgba(255,246,227,.2);color:#fff6e3;cursor:pointer}   /* v036: tide number + menu top right; the tides are on the compass */
+#insel #hTideP{position:fixed;right:12px;top:10px;z-index:5;pointer-events:auto;-webkit-touch-callout:none;user-select:none;display:flex;align-items:center;gap:6px;flex-wrap:wrap}#insel #hTideP .num{font-size:12px;opacity:.85}#insel #hWaves{display:none}#insel #hG{display:none}#insel #bMenu{margin-left:6px;padding:0 8px;font:600 16px Fredoka;border:0;border-radius:8px;background:rgba(255,246,227,.2);color:#fff6e3;cursor:pointer;min-width:44px;min-height:44px}   /* v036: tide number + menu top right; the tides are on the compass */
 #insel #hWp .wrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 #insel .wbar{position:relative;width:120px;height:9px;border-radius:5px;background:rgba(255,255,255,.16);overflow:hidden}
 #insel .wbar i{position:absolute;top:0;bottom:0;transition:left .4s,width .4s}#insel .wbar .ws{background:#6fc35a}#insel .wbar .wf{background:#ffd45a}
@@ -365,7 +366,7 @@ body:not(.tester) .testonly{display:none!important}
 <div id="ui"><button id="bRules">📖 Rules<span class="badge" id="rBadge"></span></button><button id="bBeach" title="To the beach (low tide only)">🏖 Beach</button><button id="bEnd">End ebb</button></div>
 <div id="toast"></div><div class="chat" id="chatT"><span class="who">🐢 Tortoise</span><div class="lines"></div></div><div class="chat" id="chatB"><span class="who">💼 Briefcase</span><div class="lines"></div></div><div id="banner"></div>
 <div id="card"><div class="cardbox"><h2 id="cardT"></h2><div id="cardB"></div><button id="cardBtn">OK</button></div></div>
-<div id="info"><button id="bReport">📋 Beach report<span class="badge" id="repBadge">new</span></button><span></span><button id="bLedger" style="display:none">💼 Intercepted Memos<span class="badge" id="lBadge">new</span></button><button id="bHome" title="Back to the default view">⌖ View</button><button id="bTiles">Tile borders: on</button><button id="bSnd">Sound: on</button><select id="scen"><option value="real">beach: real</option><option value="typical">beach: typical</option><option value="tough">beach: tough</option><option value="smooth">beach: smooth</option></select></div>
+<div id="info"><button id="bReport">📋 Beach report<span class="badge" id="repBadge">new</span></button><span></span><button id="bLedger" style="display:none">💼 Intercepted Memos<span class="badge" id="lBadge">new</span></button><button id="bHome" title="Back to the default view">⌖ View</button><button id="bTiles">Tile borders: on</button><button id="bSnd">Sound: on</button><button id="bGfx">Graphics: auto</button><select id="scen"><option value="real">beach: real</option><option value="typical">beach: typical</option><option value="tough">beach: tough</option><option value="smooth">beach: smooth</option></select></div>
 <div id="treeScr"><div class="tbox"><button id="tClose">✕</button><h2>The Banyan</h2><div class="row" id="tTop"></div><div class="tmain"><canvas id="tFlow"></canvas></div><div class="row" id="tNext"></div><div class="row" id="tCtl"></div><div id="tDreamRow"><span id="tDreamHint"></span><button id="tDream">☾ Dream</button></div></div></div>
 <div id="prio"><div class="pbox"><div class="stamp">CONFIDENTIAL</div><div class="pwho" id="pWho"></div><h2 class="ptitle" id="pTitle"></h2><canvas id="pIll" width="560" height="240"></canvas><div class="ptext" id="pText"></div><button class="pbtn" id="pBtn">Noted</button><button class="pbtn" id="pBtn2"></button></div></div>
 <div id="fight"><div class="fbox"><h2 id="fT"></h2><div id="fB"></div><div class="row"><button id="fSim">Simulate</button><button id="fLose">Lost</button><button id="fWin">Won</button><button id="fGo" style="display:none">⚔ To the beach</button></div></div></div>
@@ -812,7 +813,14 @@ const RSAVE = {
 const W = {};
 const pending = {};
 let aktiv = 'strand';
+// v070: lite graphics — set by hand (title screen, island menu) or by itself when the device cannot keep up for a while
+const GFX = { mode: 'auto', lite: false, slow: 0, last: 0 };
+try { const m = localStorage.getItem('robinson_gfx'); if (m === 'lite' || m === 'full') GFX.mode = m; } catch (e) {}
+GFX.lite = GFX.mode === 'lite';
 function tick(ts) {
+  const raw = GFX.last ? (ts - GFX.last) / 1000 : 0.016; GFX.last = ts;
+  if (GFX.mode === 'auto' && !GFX.lite && raw < 0.5 && !document.hidden) { GFX.slow = raw > 0.029 ? GFX.slow + raw : Math.max(0, GFX.slow - raw * 2);
+    if (GFX.slow > 4) { GFX.lite = true; try { SPIEL.hinweis('Lite graphics on — this device was struggling. (Graphics: title screen or island menu)'); } catch (e) {} } }
   const f = pending[aktiv]; if (f) { pending[aktiv] = null; f(ts); }
   requestAnimationFrame(tick);
 }
@@ -963,6 +971,9 @@ const SPIEL = {
     if (!this.speicherFehler) { this.speicherFehler = true; this.hinweis('⚠ Saving failed — this browser is not keeping your game. Copy the logbook (cat window) to be safe.'); }
     return false;
   },
+  istLite() { return GFX.lite; },
+  gfx() { return GFX.mode; },
+  gfxWeiter() { GFX.mode = { auto: 'lite', lite: 'full', full: 'auto' }[GFX.mode]; GFX.lite = GFX.mode === 'lite'; GFX.slow = 0; try { localStorage.setItem('robinson_gfx', GFX.mode); } catch (e) {} return GFX.mode; },
   speicherTest() { try { localStorage.setItem('robinson_probe', '1'); localStorage.removeItem('robinson_probe'); return true; } catch (e) { return false; } },
   // v070: the save also goes out between floods — when the app goes to the background, and a moment after every paid action
   zwischenDarf() { try { return !this._laedt && !this._flut && aktiv !== 'kampf' && !api('strand').aufTitel() && !api('strand').imKampf() && api('strand').kannWechseln() && (!this.inselBereit || api('insel').kannWechseln()); } catch (e) { return false; } },
@@ -1356,6 +1367,8 @@ function surfRegeln(sel) {
       text: '<p>In the nest and in his den the wave runs over rotten <b>scree</b>, with <b>crevasses</b> (amber sign: GAP). Early ones: a free jump (D) clears them. Wider ones: jump from the mussel in front. The widest: only the <b>glider</b> gets you across.</p><p>Falling in costs <b>all your stamina</b> — only a charged VOID saves you. Monsters keep clear of the crevasses.</p>' },
     { id: 'flame', title: 'Flamethrower — hold A', at: 11, need: st.flame ? '' : 'A gift with your first army fight.', ill: regelPhone(['H', 'HOLD'], ['', ''], ['Hold A or the left half', 'until you dive']),
       text: '<p>Against the Board\'s <b>army</b>: keep <b>A held</b> through the boomerang, the climb and the whole leap — the flame burns into the wall in front of you, and from the air down onto it, until you dive into the water. What it catches burns and chars. Hotter Flames burns harder. Armies bring more, bigger and tougher walls.</p><p>It works on the beach walls too, once you have it.</p>' },
+    { id: 'beasts', title: 'Who swims here', at: 2, ill: '',   // v070: the monsters you have met so far, one line each
+      text: '<p>Everything that came off the yacht, in the order you meet it:</p>' + [[1, '🐸 <b>Tadpoles</b> — cane-toad spawn gone green. One stamp each, at first. They are the hearts you live on.'], [2, '🦪 <b>Mussels</b> — ramps. Tap D on one: a big jump. Ride over without a tap: a hop and 1 stamina.'], [5, '🐝 <b>Invoice wasps</b> — they fly above the water and come back from behind. The stamp reaches them; the cat looks back when they return.'], [7, '🪳 <b>Wake lice</b> — they follow in your wake; the stamp slips off them. A good Wall Leap throws them far ahead and takes them down.'], [8, '🐙 <b>Tentacle walls</b> — a whole wall at once, faster than the water. Wall Leap (A) at the sign.'], [10, '🧑‍✈️ <b>The First Mate</b> — and what the Board makes of him afterwards.'], [15, '🐍 <b>Black eels</b> — up from below, tough, and they bite for double. Several stamps — or the cat (Eel Catcher).'], [20, '🌧 <b>Poison clouds</b> — see their own card.']].filter(x => st.flood >= x[0]).map(x => '<p>' + x[1] + '</p>').join('') },
     { id: 'cloud', title: 'Poison clouds', at: 20, ill: regelPhone(['T', 'TAP'], ['', ''], ['Tap A when it flashes A!', 'climb back, leap out']),   // v065
       text: '<p>From stage 20 a black <b>cloud</b> stops over you and flashes <b>A!</b>. Then it rains poison on the stretch where you ride — a little behind you and a good way ahead.</p><p><b>Tap A</b> while it flashes: you climb back out of the rain and leap far ahead; while it still rains you are in the leap or the dive. In the leap and the dive nothing hurts you — the white-turquoise <b>shield</b> round you shows it. Tap much too early and you come down in the rain again; too late and the first drops get you. A D hop keeps you in the rain.</p>' },
     { id: 'barrel', title: 'The barrel', at: 27, ill: regelPhone(['H', 'HOLD'], ['', ''], ['Hold A under the curtain', 'PULL IN']),   // v065
@@ -3913,7 +3926,9 @@ el.waitBtn.addEventListener('click', () => { el.waitBtn.classList.remove('hint')
 // v061: tutorials on/off — the island's scripted first steps and the surf's learning signs
 function tutTaste() { const b = $('tlTut'); if (!b) return; let off = false; try { off = localStorage.getItem('robinson_tutorials') === 'off'; } catch (e) {} b.textContent = 'TUTORIALS: ' + (off ? 'OFF' : 'ON'); b.classList.toggle('off', off); }
 tutTaste();
+{ const b = document.createElement('button'), row = document.createElement('div'), tut = $('tlTut'); b.id = 'tlGfx'; b.textContent = 'GRAPHICS: ' + SPIEL.gfx().toUpperCase(); row.id = 'tlRow'; tut.replaceWith(row); row.append(tut, b); }   // v070: next to the tutorial switch
 el.overlay.addEventListener('click', e => {
+  if (e.target.closest && e.target.closest('#tlGfx')) { e.target.closest('#tlGfx').textContent = 'GRAPHICS: ' + SPIEL.gfxWeiter().toUpperCase(); e.stopPropagation(); return; }
   if (e.target.closest && e.target.closest('#tlTut')) { try { localStorage.setItem('robinson_tutorials', localStorage.getItem('robinson_tutorials') === 'off' ? 'on' : 'off'); } catch (_) {} tutTaste(); e.stopPropagation(); return; }
   if (S.screen === 'start' && e.target.closest && e.target.closest('#tlCont')) {   // v030: continue from the autosave
     audioInit(); if (AU.ctx && AU.ctx.state === 'suspended') AU.ctx.resume(); SPIEL.ladeAutosave(); return;
@@ -7902,7 +7917,7 @@ let last = 0, predT = 0;
 function frame(now) {
   try {
     const raw = last ? (now - last) / 1000 : 0.016; last = now;
-    const dt = Math.min(0.05, raw) * (LAB.on ? LAB.speed : 1);
+    const dt = Math.min(0.05, raw) * (LAB.on ? LAB.speed : 1); P.lite = SPIEL.istLite();
     clock += dt;
     if (running && !paused && !(LAB.on && LAB.pause) && G) {
       update(dt);
@@ -11722,6 +11737,7 @@ G.scen = beachMode();   // v030: 'real' = the real beach; the SIM rows stay as a
 $('scen').value = G.scen;
 $('scen').onchange = e => { G.scen = e.target.value; try { localStorage.setItem('robinson_beach_mode', e.target.value); } catch (_) {} toast(G.scen === 'real' ? 'Beach: the real one.' : 'Beach: simulated (' + G.scen + ') — test mode, no beach fights.'); };
 $('bSnd').textContent = 'Sound: ' + (SND.on ? 'on' : 'off');
+$('bGfx').textContent = 'Graphics: ' + SPIEL.gfx(); $('bGfx').onclick = e => { e.target.textContent = 'Graphics: ' + SPIEL.gfxWeiter(); };   // v070
 $('bSnd').onclick = e => { SND.on = !SND.on; try { localStorage.setItem('robinson_map_sound', SND.on ? 'on' : 'off'); } catch (_) {} e.target.textContent = 'Sound: ' + (SND.on ? 'on' : 'off'); if (SND.on) sndInit(); };
 $('bRules').onclick = openRules;
 $('rClose').onclick = () => $('rulesScr').style.display = 'none';
@@ -12806,7 +12822,9 @@ cv.addEventListener('wheel', e => { e.preventDefault(); camZoomAt(e.clientX, e.c
 
 // ---------- frame ----------
 let lastT = 0;
+let frameN = 0;
 function frame(ms) {
+  if (SPIEL.istLite() && G.phase === 'ebb' && !G.landung && (frameN++ & 1)) { WELT.raf(frame); return; }   // v070: lite graphics — the map draws every second frame during the ebb
   const t = ms / 1000, dt = Math.min(.05, lastT ? t - lastT : .016); lastT = t; G.now = t;
   if (CV.on) { ambTick(dt); WELT.raf(frame); return; }
   updateCat(dt);
@@ -13442,6 +13460,7 @@ d("PTR", () => PTR);
 d("DRAG", () => DRAG, v => { DRAG = v; });
 d("camZoomAt", () => camZoomAt, v => { camZoomAt = v; });
 d("lastT", () => lastT, v => { lastT = v; });
+d("frameN", () => frameN, v => { frameN = v; });
 d("frame", () => frame, v => { frame = v; });
 d("lbar", () => lbar);
 d("step", () => step);

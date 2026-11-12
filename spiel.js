@@ -44,7 +44,14 @@ export const RSAVE = {
 const W = {};
 const pending = {};
 let aktiv = 'strand';
+// v070: lite graphics — set by hand (title screen, island menu) or by itself when the device cannot keep up for a while
+const GFX = { mode: 'auto', lite: false, slow: 0, last: 0 };
+try { const m = localStorage.getItem('robinson_gfx'); if (m === 'lite' || m === 'full') GFX.mode = m; } catch (e) {}
+GFX.lite = GFX.mode === 'lite';
 function tick(ts) {
+  const raw = GFX.last ? (ts - GFX.last) / 1000 : 0.016; GFX.last = ts;
+  if (GFX.mode === 'auto' && !GFX.lite && raw < 0.5 && !document.hidden) { GFX.slow = raw > 0.029 ? GFX.slow + raw : Math.max(0, GFX.slow - raw * 2);
+    if (GFX.slow > 4) { GFX.lite = true; try { SPIEL.hinweis('Lite graphics on — this device was struggling. (Graphics: title screen or island menu)'); } catch (e) {} } }
   const f = pending[aktiv]; if (f) { pending[aktiv] = null; f(ts); }
   requestAnimationFrame(tick);
 }
@@ -195,6 +202,9 @@ export const SPIEL = {
     if (!this.speicherFehler) { this.speicherFehler = true; this.hinweis('⚠ Saving failed — this browser is not keeping your game. Copy the logbook (cat window) to be safe.'); }
     return false;
   },
+  istLite() { return GFX.lite; },
+  gfx() { return GFX.mode; },
+  gfxWeiter() { GFX.mode = { auto: 'lite', lite: 'full', full: 'auto' }[GFX.mode]; GFX.lite = GFX.mode === 'lite'; GFX.slow = 0; try { localStorage.setItem('robinson_gfx', GFX.mode); } catch (e) {} return GFX.mode; },
   speicherTest() { try { localStorage.setItem('robinson_probe', '1'); localStorage.removeItem('robinson_probe'); return true; } catch (e) { return false; } },
   // v070: the save also goes out between floods — when the app goes to the background, and a moment after every paid action
   zwischenDarf() { try { return !this._laedt && !this._flut && aktiv !== 'kampf' && !api('strand').aufTitel() && !api('strand').imKampf() && api('strand').kannWechseln() && (!this.inselBereit || api('insel').kannWechseln()); } catch (e) { return false; } },
@@ -588,6 +598,8 @@ function surfRegeln(sel) {
       text: '<p>In the nest and in his den the wave runs over rotten <b>scree</b>, with <b>crevasses</b> (amber sign: GAP). Early ones: a free jump (D) clears them. Wider ones: jump from the mussel in front. The widest: only the <b>glider</b> gets you across.</p><p>Falling in costs <b>all your stamina</b> — only a charged VOID saves you. Monsters keep clear of the crevasses.</p>' },
     { id: 'flame', title: 'Flamethrower — hold A', at: 11, need: st.flame ? '' : 'A gift with your first army fight.', ill: regelPhone(['H', 'HOLD'], ['', ''], ['Hold A or the left half', 'until you dive']),
       text: '<p>Against the Board\'s <b>army</b>: keep <b>A held</b> through the boomerang, the climb and the whole leap — the flame burns into the wall in front of you, and from the air down onto it, until you dive into the water. What it catches burns and chars. Hotter Flames burns harder. Armies bring more, bigger and tougher walls.</p><p>It works on the beach walls too, once you have it.</p>' },
+    { id: 'beasts', title: 'Who swims here', at: 2, ill: '',   // v070: the monsters you have met so far, one line each
+      text: '<p>Everything that came off the yacht, in the order you meet it:</p>' + [[1, '🐸 <b>Tadpoles</b> — cane-toad spawn gone green. One stamp each, at first. They are the hearts you live on.'], [2, '🦪 <b>Mussels</b> — ramps. Tap D on one: a big jump. Ride over without a tap: a hop and 1 stamina.'], [5, '🐝 <b>Invoice wasps</b> — they fly above the water and come back from behind. The stamp reaches them; the cat looks back when they return.'], [7, '🪳 <b>Wake lice</b> — they follow in your wake; the stamp slips off them. A good Wall Leap throws them far ahead and takes them down.'], [8, '🐙 <b>Tentacle walls</b> — a whole wall at once, faster than the water. Wall Leap (A) at the sign.'], [10, '🧑‍✈️ <b>The First Mate</b> — and what the Board makes of him afterwards.'], [15, '🐍 <b>Black eels</b> — up from below, tough, and they bite for double. Several stamps — or the cat (Eel Catcher).'], [20, '🌧 <b>Poison clouds</b> — see their own card.']].filter(x => st.flood >= x[0]).map(x => '<p>' + x[1] + '</p>').join('') },
     { id: 'cloud', title: 'Poison clouds', at: 20, ill: regelPhone(['T', 'TAP'], ['', ''], ['Tap A when it flashes A!', 'climb back, leap out']),   // v065
       text: '<p>From stage 20 a black <b>cloud</b> stops over you and flashes <b>A!</b>. Then it rains poison on the stretch where you ride — a little behind you and a good way ahead.</p><p><b>Tap A</b> while it flashes: you climb back out of the rain and leap far ahead; while it still rains you are in the leap or the dive. In the leap and the dive nothing hurts you — the white-turquoise <b>shield</b> round you shows it. Tap much too early and you come down in the rain again; too late and the first drops get you. A D hop keeps you in the rain.</p>' },
     { id: 'barrel', title: 'The barrel', at: 27, ill: regelPhone(['H', 'HOLD'], ['', ''], ['Hold A under the curtain', 'PULL IN']),   // v065

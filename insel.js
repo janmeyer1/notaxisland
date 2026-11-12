@@ -2512,6 +2512,7 @@ G.scen = beachMode();   // v030: 'real' = the real beach; the SIM rows stay as a
 $('scen').value = G.scen;
 $('scen').onchange = e => { G.scen = e.target.value; try { localStorage.setItem('robinson_beach_mode', e.target.value); } catch (_) {} toast(G.scen === 'real' ? 'Beach: the real one.' : 'Beach: simulated (' + G.scen + ') — test mode, no beach fights.'); };
 $('bSnd').textContent = 'Sound: ' + (SND.on ? 'on' : 'off');
+$('bGfx').textContent = 'Graphics: ' + SPIEL.gfx(); $('bGfx').onclick = e => { e.target.textContent = 'Graphics: ' + SPIEL.gfxWeiter(); };   // v070
 $('bSnd').onclick = e => { SND.on = !SND.on; try { localStorage.setItem('robinson_map_sound', SND.on ? 'on' : 'off'); } catch (_) {} e.target.textContent = 'Sound: ' + (SND.on ? 'on' : 'off'); if (SND.on) sndInit(); };
 $('bRules').onclick = openRules;
 $('rClose').onclick = () => $('rulesScr').style.display = 'none';
@@ -3596,7 +3597,9 @@ cv.addEventListener('wheel', e => { e.preventDefault(); camZoomAt(e.clientX, e.c
 
 // ---------- frame ----------
 let lastT = 0;
+let frameN = 0;
 function frame(ms) {
+  if (SPIEL.istLite() && G.phase === 'ebb' && !G.landung && (frameN++ & 1)) { WELT.raf(frame); return; }   // v070: lite graphics — the map draws every second frame during the ebb
   const t = ms / 1000, dt = Math.min(.05, lastT ? t - lastT : .016); lastT = t; G.now = t;
   if (CV.on) { ambTick(dt); WELT.raf(frame); return; }
   updateCat(dt);

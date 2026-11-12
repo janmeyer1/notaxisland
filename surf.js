@@ -2771,7 +2771,7 @@ let last = 0, predT = 0;
 function frame(now) {
   try {
     const raw = last ? (now - last) / 1000 : 0.016; last = now;
-    const dt = Math.min(0.05, raw) * (LAB.on ? LAB.speed : 1);
+    const dt = Math.min(0.05, raw) * (LAB.on ? LAB.speed : 1); P.lite = SPIEL.istLite();
     clock += dt;
     if (running && !paused && !(LAB.on && LAB.pause) && G) {
       update(dt);

@@ -1418,7 +1418,9 @@ el.waitBtn.addEventListener('click', () => { el.waitBtn.classList.remove('hint')
 // v061: tutorials on/off — the island's scripted first steps and the surf's learning signs
 function tutTaste() { const b = $('tlTut'); if (!b) return; let off = false; try { off = localStorage.getItem('robinson_tutorials') === 'off'; } catch (e) {} b.textContent = 'TUTORIALS: ' + (off ? 'OFF' : 'ON'); b.classList.toggle('off', off); }
 tutTaste();
+{ const b = document.createElement('button'), row = document.createElement('div'), tut = $('tlTut'); b.id = 'tlGfx'; b.textContent = 'GRAPHICS: ' + SPIEL.gfx().toUpperCase(); row.id = 'tlRow'; tut.replaceWith(row); row.append(tut, b); }   // v070: next to the tutorial switch
 el.overlay.addEventListener('click', e => {
+  if (e.target.closest && e.target.closest('#tlGfx')) { e.target.closest('#tlGfx').textContent = 'GRAPHICS: ' + SPIEL.gfxWeiter().toUpperCase(); e.stopPropagation(); return; }
   if (e.target.closest && e.target.closest('#tlTut')) { try { localStorage.setItem('robinson_tutorials', localStorage.getItem('robinson_tutorials') === 'off' ? 'on' : 'off'); } catch (_) {} tutTaste(); e.stopPropagation(); return; }
   if (S.screen === 'start' && e.target.closest && e.target.closest('#tlCont')) {   // v030: continue from the autosave
     audioInit(); if (AU.ctx && AU.ctx.state === 'suspended') AU.ctx.resume(); SPIEL.ladeAutosave(); return;

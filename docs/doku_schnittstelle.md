@@ -181,3 +181,11 @@ The built file keeps comments and the original formatting.
 - `BRL.waitAt`, `B.waited`, `B.gone` (the herald holds while he is busy); `BRL.enterT` 1.1, `BRL.outT` 0.8; `G.spit` (seconds of safe flight, checked in `hurt`, shown by the shield).
 - Tests: `test_android.py` (Pixel 7 emulation; writes `../android_report.json`), `test_haupt_v069.py` (`known()` prints OPEN for findings of the review).
 
+## v070 — saving, graphics switch, lessons, PWA
+- SPIEL: `zwischenspeichern()`, `speichernBald()`, `zwischenDarf()`, `schreiben(log)`, `speicherFehler`, `speicherTest()`, `letzterStand()`; `ladeAutosave()` returns true/false; `istLite()`, `gfx()`, `gfxWeiter()` (localStorage `robinson_gfx`); `LOG_KEEP` 8. `popstate` handler with `zurueckZu()`.
+- Strand API: `zustandJetzt()` (state with `b._mid = { crabs, buried, tide, palmNuts, poolSips }`), `setupEbb(first, mid)`; `TOUCH`; `S.tapGo`.
+- Surf: `stageDef(cfg)` reads `cfg.seen.eelL/cloudL/barrelL` into `st.les`; `buildLevel` uses `neu(lines)` for new-monster cards; `reset` counts the lesson in `G.seen`.
+- Island: `G.flutHielt = { n, held }` (this flood's strikes), doubled spearheads in `planFlood`; the wipe memo is set in the radio's Decline handler.
+- Build: `play.html`, `manifest.webmanifest`, `sw.js`, `icon-192.png`, `icon-512.png` at the root; `index.html` forwards to `play.html`. `regeln_heute.py` writes `docs/regeln_heute.md`.
+- Tests: `test_schnittstelle.py` (APIs, beach ↔ surf, shared stocks, mid-ebb save, failed write, graphics switch, back button).
+

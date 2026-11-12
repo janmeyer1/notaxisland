@@ -47,7 +47,7 @@ async def main():
         r = await pg.evaluate("""(() => { const G = INSEL.G, T = INSEL.T, F = G.frisch; return { tide: G.tide === window._t, fresh: T.every((t, i) => (F.T[i].b || 0) === (t.b || 0)), friend: !!G.friends.banyan, upg: JSON.stringify(STRAND.S.upg) === window._up, green: STRAND.S.green, phase: G.phase, over: G.over, kurs: !!INSEL.kurs() }; })()""")
         check(r['tide'] and r['fresh'] and not r['friend'] and r['upg'] and r['green'] == 444 and r['phase'] == 'ebb' and not r['over'], f'fresh island, same tide, beach untouched ({r})')
         print('7 · surf: from stage 8 a hit costs 2')
-        check(await pg.evaluate("/ST\\.n >= 8 \\? 3 : ST\\.n >= 4 \\? 1\\.5 : 1/.test(KAMPF.hurt.toString())"), 'v062: from stage 8 a hit costs 3, from 4 ×1.5')
+        check(await pg.evaluate("/ST\\.n >= 12 \\? 3 : ST\\.n >= 8 \\? 2 : ST\\.n >= 4 \\? 1\\.5 : 1/.test(KAMPF.hurt.toString())"), 'v070: a hit costs ×1.5 from stage 4, ×2 from 8, ×3 from 12')
         check(not errs, f'no page errors ({errs[:3]})')
         await br.close()
     print('RESULT:', 'all ok' if not FAIL else f'{len(FAIL)} failed'); sys.exit(1 if FAIL else 0)

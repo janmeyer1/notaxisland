@@ -71,7 +71,7 @@ async def main():
         check(r[0] == 1 and r[1] == 2 and r[2] is None, f'stage 1 shows "Just watch and enjoy", a tap sends the second sign; stage 2 has none ({r[:2]})')
         r = await pg.evaluate("""(() => { const out = []; for (const [n, k] of [[3, 'wave'], [5, 'wave'], [9, 'wave']]) { KAMPF.reset({ stage: n, kind: k, upg: {}, stamMax: 40, stam: 40 }); const G = KAMPF.G, s0 = G.stam; G.inv = 0; G.ifr = 0; KAMPF.hurt('t'); G.ifr = 0; KAMPF.hurt('t'); out.push(s0 - G.stam); }
           KAMPF.reset({ stage: 16, kind: 'wave', upg: {}, stamMax: 40, stam: 40 }); const G = KAMPF.G, s0 = G.stam; G.inv = 0; G.ifr = 0; KAMPF.hurt('eel', 2); out.push(s0 - G.stam); return out; })()""")
-        check(r == [2, 3, 6, 6], f'two hits cost 2 (stage 3), 3 (stage 5: ×1.5), 6 (stage 9: ×3); an eel bite at 16 costs 6 ({r})')
+        check(r == [2, 3, 4, 6], f'two hits cost 2 (stage 3), 3 (stage 5: ×1.5), 4 (stage 9: ×2 since v070; ×3 from stage 12); an eel bite at 16 costs 6 ({r})')
         r = await pg.evaluate("""(() => { KAMPF.reset({ stage: 16, kind: 'wave', upg: {}, stamMax: 40 }); const lv = KAMPF.levelInit ? null : null; const ev = KAMPF.LV.ev.filter(e => e.k === 'e').length; return [ev, KAMPF.HPB.e]; })()""")
         check(r[0] >= 6 and r[1] == 9, f'stage 16 brings schools of eels with 9 hp ({r})')
         r = await pg.evaluate("""(() => { const lead = n => { KAMPF.reset({ stage: n, kind: 'wave', upg: { cycle: 1 }, stamMax: 40 }); const G = KAMPF.G; G.mons = []; KAMPF.spawnWall({ n: 9, u: 0, f: 0 }); const h = G.mons.find(m => m.herald), w = G.mons.filter(m => m.wall && !m.herald); return Math.round(Math.min(...w.map(m => m.u)) - h.u); }; return [lead(10), lead(16), lead(22)]; })()""")
