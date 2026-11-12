@@ -16,7 +16,7 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#0a3e5e;tou
 #ebbHit{position:absolute;border-radius:50%;border:0;background:transparent;cursor:pointer;pointer-events:auto}#ebbHit:focus-visible{outline:3px solid #ffd36a}
 #fiBust{position:fixed;left:max(4px,env(safe-area-inset-left));bottom:0;width:232px;height:250px;z-index:19;display:none;pointer-events:none}#fiBust canvas{width:232px;height:250px;display:block}#nabeInfo{position:absolute;border-radius:50%;pointer-events:auto;cursor:help}#fiBust button{position:absolute;border-radius:50%;border:0;background:transparent;padding:0;cursor:pointer;pointer-events:auto}#fiBust button:focus-visible{outline:3px solid #c8ff6a}
 body.fiUI #insel #chatB{left:232px;bottom:14px}
-body.fiUI #insel #hWp,body.fiUI #strand #stats>span:nth-child(2),body.fiUI #strand #stBar,body.fiUI #strand #stTxt{display:none!important}   /* v038: Wandel, sight and stamina live at the hub */
+body.fiUI #insel #hWp,body.fiUI #strand #stats>span:nth-child(2),body.fiUI #strand #stBar,body.fiUI #strand #stTxt{display:none!important}   /* v038: Kinship, sight and stamina live at the hub */
 body.fiUI #strand #botLeft,body.fiUI #insel #bTree,body.fiUI #insel #bLedger,body.fiUI #insel #bRules{visibility:hidden}   /* v037: Fi takes their place */
 @media (max-height:520px){#fiBust{transform:scale(.75);transform-origin:left bottom}}
 @media (max-width:600px){#ebb{transform:scale(.72);transform-origin:right bottom}#fiBust{transform:scale(.72);transform-origin:left bottom}#insel .chat{width:min(280px,46vw)}#insel #chatB,body.fiUI #insel #chatB{left:8px!important;bottom:172px!important}#insel #chatT{right:8px!important;bottom:172px!important}#insel #omen{left:auto!important;right:8px!important;top:52px!important;transform:none!important;max-width:46vw!important;text-align:right!important}}   /* v040: upright phones: hub and compass side by side */
@@ -127,6 +127,7 @@ body:not(.tester) .testonly{display:none!important}
 #strand #tlCv{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);image-rendering:pixelated;image-rendering:crisp-edges}
 #strand #tlCrt{position:absolute;inset:0;pointer-events:none;display:none}
 #strand #tlMenu{position:absolute;left:0;right:0;display:flex;flex-direction:column;align-items:center;gap:14px;padding:0 16px;text-align:center}
+#strand #tlWarn{font:600 14px/1.3 Fredoka,system-ui,sans-serif;color:#2a1200;background:#ffd27a;border-radius:10px;padding:8px 12px;max-width:520px}
 #strand #tlTeaser{font:400 clamp(19px,2.6vw,24px)/1.15 'VT323',monospace;color:#ffe9c8;text-shadow:2px 2px 0 #2a1840;max-width:560px}
 #strand #tlStart{font:700 20px 'Pixelify Sans',monospace;letter-spacing:.06em;color:#2a1840;background:#ffd27a;border:0;padding:10px 22px;cursor:pointer;
   box-shadow:0 -4px 0 0 #2a1840,0 4px 0 0 #2a1840,-4px 0 0 0 #2a1840,4px 0 0 0 #2a1840,inset 0 -4px 0 0 #e08a4a,inset 0 4px 0 0 #fff2c0;animation:tlPulse 2.4s ease-in-out infinite}
@@ -359,7 +360,7 @@ body:not(.tester) .testonly{display:none!important}
 <!-- ======================= INSEL ======================= -->
 <div id="insel" class="welt" style="display:none">
 <div id="wrap"><canvas id="cv"></canvas></div>
-<div id="hud"><div class="pill" id="hGoal"></div><div class="pill" id="hTideP"><span id="hWaves"></span><span class="num"><b id="hG"></b>Tide <b id="hT"></b></span></div><div class="pill" id="hWp"><div class="wrow"><span>Wandel <b id="hW"></b>/<span id="hWm">20</span></span><div class="wbar" id="hWb"><i class="ws"></i><i class="wf"></i></div><span class="wcons">→ <span id="hS"></span> · 👁 <b id="hSight"></b><span id="hEff"></span></span></div><div class="wsub"><span class="gold" id="hWF"></span><span id="hNext"></span></div></div><div class="pill" id="hR"></div><div class="pill" id="hBoss"></div><div class="pill" id="hThreat"></div><div class="pill" id="hOff"></div><div class="pill" id="hInf"></div></div>
+<div id="hud"><div class="pill" id="hGoal"></div><div class="pill" id="hTideP"><span id="hWaves"></span><span class="num"><b id="hG"></b>Tide <b id="hT"></b></span></div><div class="pill" id="hWp"><div class="wrow"><span>Kinship <b id="hW"></b>/<span id="hWm">20</span></span><div class="wbar" id="hWb"><i class="ws"></i><i class="wf"></i></div><span class="wcons">→ <span id="hS"></span> · 👁 <b id="hSight"></b><span id="hEff"></span></span></div><div class="wsub"><span class="gold" id="hWF"></span><span id="hNext"></span></div></div><div class="pill" id="hR"></div><div class="pill" id="hBoss"></div><div class="pill" id="hThreat"></div><div class="pill" id="hOff"></div><div class="pill" id="hInf"></div></div>
 <div class="pill" id="omen"></div><div id="panel"></div>
 <div id="ui"><button id="bRules">📖 Rules<span class="badge" id="rBadge"></span></button><button id="bBeach" title="To the beach (low tide only)">🏖 Beach</button><button id="bEnd">End ebb</button></div>
 <div id="toast"></div><div class="chat" id="chatT"><span class="who">🐢 Tortoise</span><div class="lines"></div></div><div class="chat" id="chatB"><span class="who">💼 Briefcase</span><div class="lines"></div></div><div id="banner"></div>

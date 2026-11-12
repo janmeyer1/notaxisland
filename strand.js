@@ -19,22 +19,22 @@ const UPGRADES = [
   { id: 'speed', grp: 'Stamp', name: 'Faster Stamping', desc: 'Stamp 10 % faster per level (the first level: 20 %). — Signing in triplicate taught your wrist something.', cur: 'green', base: 20, mult: 1.9, max: 6 },
   { id: 'splash', grp: 'Stamp', name: 'Wider Splash', desc: 'Ink splashes 4 px further per level, and harder onto the ones around. — Your signature, now in wide format.', cur: 'green', base: 20, mult: 1.9, max: 6 },
   { id: 'jump', grp: 'Moves', name: 'Jump [D]', key: true, gift: 2, desc: 'Tap D (or the right half) as you ride up a mussel: a big jump, the mussel dies, you get a boost. Jump again where you land. — A gift of stage 2.', cur: 'green', base: 0, mult: 1, max: 1 },
-  { id: 'boostLen', grp: 'Moves', name: 'Long Boost', desc: 'The boost after each combo lasts 25 % longer per level. — Momentum, finally on your side.', cur: 'green', base: 280, mult: 1.8, max: 5 },   // v056: Long Boost and Heart Magnet hang on the board itself
-  { id: 'magnet', grp: 'Moves', name: 'Heart Magnet', desc: 'After you catch the magnet, hearts fly to you from further away (+1.4 px per level). — Love, it turns out, is attractive.', cur: 'green', base: 280, mult: 1.8, max: 5 },
+  { id: 'boostLen', grp: 'Moves', name: 'Long Boost', desc: 'The boost after each combo lasts 25 % longer per level. — Momentum, finally on your side.', cur: 'green', base: 280, mult: 1.8, max: 8 },   // v056: Long Boost and Heart Magnet hang on the board itself
+  { id: 'magnet', grp: 'Moves', name: 'Heart Magnet', desc: 'After you catch the magnet, hearts fly to you from further away (+1.4 px per level). — Love, it turns out, is attractive.', cur: 'green', base: 280, mult: 1.8, max: 8 },
   { id: 'cycle', grp: 'Moves', name: 'Wall Leap [A]', key: true, gift: 8, desc: 'Tap A (or the left half) at the green sign: boomerang back, climb, leap over the wall, dive where they land. — A gift of stage 8.', cur: 'green', base: 0, mult: 1, max: 1 },
-  { id: 'cycleBoom', grp: 'Moves', name: 'Heavy Boomerang', desc: 'The Wall Leap\'s boomerang hits 50 % harder per level. — Polished on the long nights.', cur: 'green', base: 400, mult: 1.8, max: 5, req: () => S.upg.cycle > 0 },
-  { id: 'cycleDive', grp: 'Moves', name: 'Deep Dive', desc: 'The dive at the end of the leap reaches 30 % wider per level. — You go in like a bad decision.', cur: 'green', base: 400, mult: 1.8, max: 5, req: () => S.upg.cycle > 0 },
+  { id: 'cycleBoom', grp: 'Moves', name: 'Heavy Boomerang', desc: 'The Wall Leap\'s boomerang hits 50 % harder per level. — Polished on the long nights.', cur: 'green', base: 400, mult: 1.8, max: 8, req: () => S.upg.cycle > 0 },
+  { id: 'cycleDive', grp: 'Moves', name: 'Deep Dive', desc: 'The dive at the end of the leap reaches 30 % wider per level. — You go in like a bad decision.', cur: 'green', base: 400, mult: 1.8, max: 8, req: () => S.upg.cycle > 0 },
   { id: 'glide', grp: 'Moves', name: 'Glider [hold D]', key: true, gift: 'nest', desc: 'Hold D (or the right half) in the air: a palm-leaf glider, up to 2 s. Wide crevasses need it. — The tortoise wove it for your first island fight.', cur: 'green', base: 0, mult: 1, max: 1 },
-  { id: 'glideLen', grp: 'Moves', name: 'Long Glide', desc: 'The glider holds 0.5 s longer per level. — More leaves, fewer prayers.', cur: 'green', base: 300, mult: 1.8, max: 4, req: () => S.upg.glide > 0 },
+  { id: 'glideLen', grp: 'Moves', name: 'Long Glide', desc: 'The glider holds 0.5 s longer per level. — More leaves, fewer prayers.', cur: 'green', base: 300, mult: 1.8, max: 6, req: () => S.upg.glide > 0 },
   { id: 'flame', grp: 'Moves', name: 'Flamethrower [hold A]', key: true, gift: 'army', desc: 'Hold A while you climb in the Wall Leap: a blaze that burns through the wall. — A gift of your first fight against an army.', cur: 'green', base: 0, mult: 1, max: 1 },
-  { id: 'flamePow', grp: 'Moves', name: 'Hotter Flames', desc: 'The flamethrower burns 7 damage per second hotter per level. — Better rum, hotter fire.', cur: 'rum', base: 6, mult: 1.7, max: 5, req: () => S.upg.flame > 0 },
+  { id: 'flamePow', grp: 'Moves', name: 'Hotter Flames', desc: 'The flamethrower burns 7 damage per second hotter per level. — Better rum, hotter fire.', cur: 'rum', base: 6, mult: 1.7, max: 8, req: () => S.upg.flame > 0 },
   { id: 'void', grp: 'VOID', name: 'VOID [life-saver]', key: true, desc: 'Fills with the hearts you collect. When your stamina would hit 0 it fires by itself: 30 % stamina back and lightning from kill to kill. — The roots under the sea catch you.', cur: 'rum', base: 8, mult: 1, max: 1 },   // v060: 5 → 8
-  { id: 'voidCharge', grp: 'VOID', name: 'Quick Charge', desc: 'VOID needs 15 % fewer hearts to charge, per level. — It learns your rhythm.', cur: 'rum', base: 4, mult: 1.6, max: 5, req: () => S.upg.void > 0 },
+  { id: 'voidCharge', grp: 'VOID', name: 'Quick Charge', desc: 'VOID needs 15 % fewer hearts to charge, per level. — It learns your rhythm.', cur: 'rum', base: 4, mult: 1.6, max: 7, req: () => S.upg.void > 0 },
   { id: 'voidHeal', grp: 'VOID', name: 'Second Wind', desc: 'VOID gives +10 % more stamina back, per level. — A deeper breath before the next wave.', cur: 'rum', base: 5, mult: 1.6, max: 3, req: () => S.upg.void > 0 },
   { id: 'catDive', grp: 'Cat', name: 'Fishing Dive', desc: 'Once a fight she leaps off your head after a rot minnow: a sure fish tail. — Then she clings to the board, soaked and furious.', cur: 'tails', base: 2, mult: 1, max: 1 },
   { id: 'lapcat', grp: 'Cat', name: 'Lap Cat', desc: 'On the beach: four strokes in a row and she purrs +1 stamina, once every tide. — Hold her still to open her own screen.', cur: 'tails', base: 2, mult: 1, max: 1 },
   { id: 'catBoard', grp: 'Cat', name: 'Her Own Board', desc: 'She surfs your wake on her own board and dives again and again: a fish tail for every catch. — Her board, her rules.', cur: 'tails', base: 13, mult: 1, max: 1, req: () => S.upg.catDive > 0 },   // v060: 5 → 13
-  { id: 'catFish', grp: 'Cat', name: 'Deeper Dives', desc: 'She dives 15 % more often, reaches 12 px further and goes 25 % deeper, per level. — Fish fear her. Rightly.', cur: 'tails', base: 3, mult: 1.7, max: 5, req: () => S.upg.catBoard > 0 },
+  { id: 'catFish', grp: 'Cat', name: 'Deeper Dives', desc: 'She dives 15 % more often, reaches 12 px further and goes 25 % deeper, per level. — Fish fear her. Rightly.', cur: 'tails', base: 3, mult: 1.7, max: 8, req: () => S.upg.catBoard > 0 },
   { id: 'catEel', grp: 'Cat', name: 'Eel Catcher', desc: 'She dives for the big black eels too: a caught eel dies and brings 2 🐟. — Twice her length. She does not care.', cur: 'tails', base: 15, mult: 1, max: 1, req: () => S.upg.catBoard > 0 && (S.seen.eel || S.flood >= 15) },   // v061
   { id: 'catShoo', grp: 'Cat', name: 'Rot Chaser', desc: 'Island only. She chases rot off your tile or the one next to you: −1 rot. 5 🐟 — doubling with each chase in the same ebb. Not on nests: she is brave, not stupid.', cur: 'tails', base: 6, mult: 1, max: 1, req: () => S.upg.lapcat > 0 && SPIEL.rotGekaempft() }   // v058; v061: only once Robinson has fought rot himself
 ];
@@ -99,7 +99,7 @@ function tortAsleep() { return S.tort.sleep > 0; }
 window.gameTime = () => S.time;   // v016: the title's exit matches the storm sea's waves
 SOUND.strandSzene = () => S.screen;   // v031: the beach ambience (sound.js) follows the beach scene
 function unruhe() { return S.tideMax ? clamp(1 - S.tide / S.tideMax, 0, 1) : 1; }
-SOUND.strandUnruhe = unruhe;   // v062: 0 = calm at ebb start, 1 = the sea coming back (all beach tides spent)
+SOUND.strandUnruhe = unruhe;   // v062: 0 = calm at ebb start, 1 = the sea coming back (all beach hours spent)
 
 // ================= tortoise bubble =================
 const BQ = { q: [], t: 0, on: false, gap: 0, done: null };
@@ -154,7 +154,8 @@ function trackHTML() {
 function renderTrack(node) { node.innerHTML = trackHTML(); }
 function milestone(w, icon) { S.ms[Math.max(1, w)] = icon; }
 // v033: no separate beach log any more — the save file (spiel.js) is the log; the beach gives it its readable columns (bilanz)
-const S_SKIP = new Set(['kampf', 'res', 'autoLetzt', 'warte', 'flutBoss', 'spent', 'katzeWeg', 'pointers', 'keys', 'floats', 'parts', 'crabs', 'cut', 'wake', 'swim', 'openNut', 'hint', 'round', 'busy', 'fade', 'wl', 'time', 'flot', 'ffind', 'lastAct', '_snap', 'screen']);
+const TOUCH = (() => { try { return matchMedia('(pointer: coarse)').matches; } catch (e) { return false; } })();   // v070: a phone or tablet — hints name gestures, not keys
+const S_SKIP = new Set(['tapGo', 'kampf', 'res', 'autoLetzt', 'warte', 'flutBoss', 'spent', 'katzeWeg', 'pointers', 'keys', 'floats', 'parts', 'crabs', 'cut', 'wake', 'swim', 'openNut', 'hint', 'round', 'busy', 'fade', 'wl', 'time', 'flot', 'ffind', 'lastAct', '_snap', 'screen']);
 function beachState(first) { const b = {}; Object.keys(S).forEach(k => { if (!S_SKIP.has(k) && typeof S[k] !== 'function') b[k] = S[k]; }); return { v: RSAVE.V, module: 'beach', tide: S.day, first: !!first, b: JSON.parse(JSON.stringify(b)) }; }   // v030: tide = the shared tide counter (= day)
 const S_GRUND = JSON.parse(JSON.stringify(beachState(true).b));   // v062: the beach as it is before anything happens — the logbook only writes what differs
 function beachLoad(st) {
@@ -167,7 +168,7 @@ function beachLoad(st) {
   Object.keys(st.b).forEach(k => { if (!S_SKIP.has(k)) S[k] = st.b[k]; });
   catMigrate();
   UPGRADES.forEach(u => { if (S.upg[u.id] === undefined) S.upg[u.id] = 0; });
-  setupEbb(!!st.first); banner('Loaded · wave ' + S.flood + ' · day ' + S.day, 1800);
+  const mid = S._mid; delete S._mid; setupEbb(!!st.first, mid); banner('Loaded · wave ' + S.flood + ' · day ' + S.day, 1800);
 }
 // v042: older saves bought Courage / Teamwork — they become Fishing Dive / Her Own Board / Deeper Dives
 function catMigrate() {
@@ -191,11 +192,11 @@ const GIFT_CARD = {   // v055: a gift is announced on the beach, in its own wind
   glide: ['The tortoise', ["The island is open — and the nests sit on rotten scree, full of crevasses. Fall into one and it takes everything you have.", "So I wove you a glider from palm leaves. Hold D (or the right half) in the air and it opens. Practise on the beach; the first crevasse in the nest is a small one."]],
   flame: ['The tortoise', ["Armies are marching. Walls of them, one after the other.", "The banyan sends you fire for that. Hold A (or the left half) while you climb in the Wall Leap — the flamethrower burns into the wall as long as you hold."]]
 };
-const TIDE_UPS = { stamp: "The stamp is yours. Each low tide you'll have a little more time now: +1 tide.", forest: "The palm forest is open. More to do, more time to do it: +1 tide every ebb.", crusoe1: "Crusoe's notes. Someone managed here before you — and so will you: +1 tide every ebb.", bark: "Crusoe's bark map. You know where to look now: +1 tide every ebb.", map: "The whole island is yours to work now: +1 tide every ebb." };
+const TIDE_UPS = { stamp: "The stamp is yours. Each low tide you'll have a little more time now: +1 hour.", forest: "The palm forest is open. More to do, more time to do it: +1 hour every ebb.", crusoe1: "Crusoe's notes. Someone managed here before you — and so will you: +1 hour every ebb.", bark: "Crusoe's bark map. You know where to look now: +1 hour every ebb.", map: "The whole island is yours to work now: +1 hour every ebb." };
 function tideMaxNow() { const n = [S.hasStamp, S.forestOpen, S.ffi >= 1, S.ffi >= 4, S.mapUnlocked].filter(Boolean).length; return Math.min(STATS.ebb.tide, STATS.ebb.tideFirst + n); }   // derived from the story, so old saves fit too
 function tideUp(k) {   // v055: a story moment earns a tide for every following ebb
   S.tideUps = S.tideUps || {}; if (S.tideUps[k]) return; S.tideUps[k] = S.day;
-  float(W * .5, H * .28, '+1 🌊 tide every ebb', '#7fe3ff'); S.tideMsg = TIDE_UPS[k];
+  float(W * .5, H * .28, '+1 🌊 hour every ebb', '#7fe3ff'); S.tideMsg = TIDE_UPS[k];
 }
 function giftNow(id, later) { if (S.upg[id]) return; S.upg[id] = 1; S.buyLog.push(id); TREE_FX.push({ id, t: 0 }); if (later) S.giftLater = id; else S.pendingGift = id; }   // v060: later = explained at the start of the next fight, when it can be used   // v055: given on the beach, before the fight that needs it
 function grantGifts(N) {   // Jump [D] comes with stage 2, Wave Cycle [A] with stage 8; v054: the Glider with the first island fight, the Flamethrower with the first army
@@ -232,6 +233,7 @@ function copyText(txt, done) {
 
 // ================= HUD =================
 function updateHUD() {
+  if (S.screen === 'beach') SPIEL.speichernBald();   // v070: whatever changed the HUD is worth keeping
   el.stBar.style.width = (100 * S.stamina / S.maxStamina) + '%';
   el.stTxt.textContent = S.stamina + '/' + S.maxStamina;
   { const h = RESS.html(), e = $('ressB'); if (e.innerHTML !== h) e.innerHTML = h; }   // v040: one resource row for both scenes
@@ -242,7 +244,7 @@ function updateHUD() {
   el.tideBox.classList.remove('top');
   const tr = $('track');
   {
-    const sp = SPIEL.spring();   // v030: the island's spring tide is shared — the beach spends it when its own tide is gone
+    const sp = SPIEL.spring();   // v030: the island's spring hour is shared — the beach spends it when its own tide is gone
     el.tideLbl.innerHTML = '🌊 <b>' + S.tide + '</b>/' + S.tideMax + (sp ? ' <span class="spr">+ ✨ ' + sp + '</span>' : '') + (S.spent ? ' · spent' : S.screen === 'forest' ? ' · Palm forest' : ' · Low tide');
     el.tideBar.parentElement.style.display = '';
     el.tideBar.style.width = (100 * S.tide / S.tideMax) + '%';
@@ -522,7 +524,7 @@ function spawnCrab() {
 }
 
 // ================= ebb (collect phase) =================
-function setupEbb(first) {
+function setupEbb(first, mid) {
   S._snap = beachState(first);   // v022: the save of this ebb's start (before anything changes)
   S.screen = 'beach'; S.busy = false; S.spent = false; S.cut = null; S.kampf = false; S.fade = 0;
   S.tideMax = tideMaxNow(); S.tide = S.tideMax;   // v055: tides are action points — 3, and story moments add more (up to 8)
@@ -536,9 +538,11 @@ function setupEbb(first) {
     nCrabs = S.day <= P.twoUntil ? 2 : S.day <= P.oneUntil ? 1 : S.day <= (P.everyOtherUntil || 0) ? (S.day % 2 === 0 ? 1 : 0) : 0;
     if (!nCrabs && Math.random() < P.buriedChance) { nCrabs = 1; buried = true; }
   }
+  if (mid) { nCrabs = mid.crabs; buried = mid.buried; }
   for (let i = 0; i < nCrabs; i++) spawnCrab();
   if (buried && S.crabs[0]) S.crabs[0].buried = true;
-  if (!first) autoChores();   // v061: the tower works at the start of the ebb, with beach tides
+  if (mid) { S.tide = Math.min(S.tideMax, mid.tide); S.palmNuts = Math.min(S.palmMax, mid.palmNuts); S.poolSips = mid.poolSips; }   // v070: a save from the middle of an ebb comes back as it was
+  if (!first && !mid) autoChores();   // v061: the tower works at the start of the ebb, with beach hours
   S.petToday = false; S.katzeWeg = SPIEL.katzeWeg();
   S.kt.circle = !first && S.day >= 7 && S.hasStamp && S.stamina < S.maxStamina && Math.random() < .5;
   S.flot = (!first && FLOTSAM[S.day] && !S.flotSeen[S.day] && S.hasStamp) ? Object.assign({ fx: rand(.48, .74), fy: .7, day: S.day }, FLOTSAM[S.day]) : null;
@@ -587,13 +591,13 @@ function setHint(type) {
 }
 function spendTide() {
   if (!S.hasStamp) { updateHUD(); return; }   // v057: the tutorial (coconuts, crab, digging) costs no tide — it could run dry before the stamp
-  if (SPIEL.inselBereit) {   // v030: beach tide first, then the shared ✨ spring tide; then the beach waits for “End ebb”
+  if (SPIEL.inselBereit) {   // v030: beach tide first, then the shared ✨ spring hour; then the beach waits for “End ebb”
     if (S.tide > 0) S.tide--; else SPIEL.springNehmen();
-    if (S.tide <= 0 && !SPIEL.spring()) { S.spent = true; S.busy = true; el.panel.style.display = 'none'; banner('Beach tide spent · 🗺 the island, or End ebb ⏭', 2200); }
+    if (S.tide <= 0 && !SPIEL.spring()) { S.spent = true; S.busy = true; el.panel.style.display = 'none'; banner('Beach hours spent · 🗺 the island, or End ebb ⏭', 2200); }
     updateHUD(); return;
   }
   S.tide = Math.max(0, S.tide - 1); updateHUD();
-  if (S.tide <= 0) { S.spent = true; S.busy = true; el.panel.style.display = 'none'; updateHUD(); banner('Tides spent · tap “Wait for the tide ⏭” when you are ready', 2600); }   // v055: no autostart — the button blinks
+  if (S.tide <= 0) { S.spent = true; S.busy = true; el.panel.style.display = 'none'; updateHUD(); banner('Hours spent · tap “Wait for the tide ⏭” when you are ready', 2600); }   // v055: no autostart — the button blinks
 }
 function tooFar(x, y) {
   float(x, y - 3 * U, 'Too far', '#e9dcc0');
@@ -755,7 +759,7 @@ function endCombat(r, N) {
   if (!win && !N && S.rum === 0 && S.seen.clam) { S.rum = 1; S.rumGift = true; }   // v060: a lost flood with no rum left — the tortoise slips you a bottle, so a weak run doesn't starve the coconuts
   if (r.catKill && !S.firstKill) { S.firstKill = true; S.pendingLine = LINES.firstKill; }
   if (r.bossDown && !N) {
-    if (!S.mapUnlocked) { S.mapUnlocked = true; S.mapAt = S.day; milestone(S.flood, '🗺'); S.pendingLine = LINES.bossWin; S.pendingMust = true; S.mapHint = true; (S.talkNext = S.talkNext || []).push({ p: 4, l: ['One more thing, darling: the golden ✨ spring tides. You earn them on the island — every real deed there gives you one more, for good.', 'They work here on the beach too, and they are always spent last.'] }); S.res1Boss = true; giftNow('glide', true); tideUp('map'); }   // v061: the spring tides explained on the beach
+    if (!S.mapUnlocked) { S.mapUnlocked = true; S.mapAt = S.day; milestone(S.flood, '🗺'); S.pendingLine = LINES.bossWin; S.pendingMust = true; S.mapHint = true; (S.talkNext = S.talkNext || []).push({ p: 4, l: ['One more thing, darling: the golden ✨ spring hours. You earn them on the island — every real deed there gives you one more, for good.', 'They work here on the beach too, and they are always spent last.'] }); S.res1Boss = true; giftNow('glide', true); tideUp('map'); }   // v061: the spring hours explained on the beach
     else milestone(S.flood, '👁');
   }
   S.res = { win, N, r };
@@ -816,7 +820,7 @@ function autoToggle() {
   SFX.buy(); updateHUD(); return S.auto;
 }
 // Silver: what you would do at low tide — crabs, coconuts (and the pool), one bottle for the tortoise. Free, at the end of the ebb.
-function autoChores() {   // v061: at the start of the ebb, and every chore costs a beach tide — like doing it by hand (spring tides stay yours)
+function autoChores() {   // v061: at the start of the ebb, and every chore costs a beach tide — like doing it by hand (spring hours stay yours)
   S.autoLast = null; if (autoMode() === 'off' || !S.hasStamp || S.wake) return null;
   const got = { crabs: 0, water: 0, rum: 0, tide: 0 }, pay = () => { if (S.tide <= 0) return false; S.tide--; got.tide++; return true; };
   while (S.crabs.length && pay()) { const c = S.crabs.pop(); S.maxStamina++; got.crabs++; }
@@ -827,7 +831,7 @@ function autoChores() {   // v061: at the start of the ebb, and every chore cost
     if (S.tort.bar >= STATS.tortoise.barMax) { S.forestOpen = true; tideUp('forest'); S.tort.sleep = 2; milestone(S.flood, '🌴'); }
   }
   if (got.crabs + got.water + got.rum) { S.autoLast = got; S.autoTxt = '🗼 The tower tended the beach' + (got.crabs ? ' · 🦀 +' + got.crabs + ' max stamina' : '') + (got.water ? ' · 💧 +' + got.water + ' stamina' : '') + (got.rum ? ' · 🥃 → 🐢' : '') + ' · −' + got.tide + ' beach tide'; banner(S.autoTxt, 3200); }
-  else S.autoTxt = S.crabs.length || S.palmNuts ? '🗼 The tower had no beach tide left' : '';
+  else S.autoTxt = S.crabs.length || S.palmNuts ? '🗼 The tower had no beach hours left' : '';
   updateHUD(); return got;
 }
 // Gold (v062): the tower rides a stage at most 2 above the last one you beat by hand — about 70 % of your average haul there, no risk. Bosses are always yours.
@@ -835,7 +839,7 @@ function wonRef() { let b = null; for (const k in S.wins) if (S.wins[k] && S.win
 function sweepable() { const ref = wonRef(); return autoMode() === 'gold' && ref !== null && S.flood - ref <= 2 && (S.flutBoss === null || S.flutBoss === undefined) && !bossWelle(S.flood); }
 // v063: the tower can lose — the odds come from your upgrades against the stage, how far past your own last ride it is, and your stamina
 function goldChance() { const ref = wonRef(); if (ref === null) return 0; const power = Object.values(S.upg).reduce((a, v) => a + (v || 0), 0), gap = S.flood - ref, st = S.maxStamina ? S.stamina / S.maxStamina : .5;
-  return clamp(.72 + .03 * (power - 2 * S.flood) - .12 * gap + .15 * (st - .5), .1, .95); }
+  return clamp(.72 + .03 * (power - 1.5 * S.flood) - .12 * gap + .15 * (st - .5), .1, .95); }   // v070: 1.5 × stage (was 2) — with the longer upgrade ladders the tower stays worth feeding
 function sweep() {
   const w = S.wins[wonRef()], p = goldChance(), win = Math.random() < p, k = (win ? 0.7 : 0.3) / w.n, rnd = x => Math.floor(x + Math.random());
   const r = { win, swept: true, chance: p, t: 0, kills: Math.round(w.kills * k), total: Math.round(w.kills * (0.7 / w.n)), gain: { green: Math.round(w.green * k), tails: rnd(w.tails * k), rum: rnd(w.rum * k) }, stam: win ? S.stamina : lossStamina(), seen: {} };
@@ -864,6 +868,7 @@ function moveDir() {   // left / right from keys and held screen edges (the titl
   if (S.keys.a || S.keys.arrowleft) d -= 1;
   if (S.keys.d || S.keys.arrowright) d += 1;
   for (const p of S.pointers.values()) { if (p.x < W / 3) d -= 1; else if (p.x > W * 2 / 3) d += 1; }
+  if (S.tapGo && S.time < S.tapGo.bis) d += S.tapGo.d;   // v070: a tap counts too — it carries on for a moment
   return clamp(d, -1, 1);
 }
 // tadpole (the raid cutscene before the stamp): a small wriggler with one green eye
@@ -1108,7 +1113,7 @@ function drawBeach(t) {
   ctx.lineTo(W, H); ctx.fill();
   const sg = ctx.createLinearGradient(0, wl, 0, H); sg.addColorStop(0, 'rgba(110,220,205,.85)'); sg.addColorStop(.4, '#2bb3b1'); sg.addColorStop(1, '#16708c');
   ctx.fillStyle = sg; ctx.beginPath(); ctx.moveTo(0, H);
-  const ur = .35 + .65 * SOUND.strandUnruhe(), wave = x => wl + (Math.sin(x * .02 + t * (1 + .6 * ur)) * .8 * U + Math.sin(x * .007 - t * .9) * .6 * U) * (.5 + ur) + Math.max(0, Math.sin(x * .004 - t * .5)) * 1.4 * U * ur * ur;   // v062: calm at ebb start, wavier as the beach tides run out
+  const ur = .35 + .65 * SOUND.strandUnruhe(), wave = x => wl + (Math.sin(x * .02 + t * (1 + .6 * ur)) * .8 * U + Math.sin(x * .007 - t * .9) * .6 * U) * (.5 + ur) + Math.max(0, Math.sin(x * .004 - t * .5)) * 1.4 * U * ur * ur;   // v062: calm at ebb start, wavier as the beach hours run out
   for (let x = 0; x <= W + 10; x += 10) ctx.lineTo(x, wave(x));
   ctx.lineTo(W, H); ctx.fill();
   ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = Math.max(2, .4 * U);
@@ -1140,7 +1145,9 @@ function drawWakeDark(t) {
     if (!blink) { ell(kx + f * 3.6 * U, ky - 5.4 * U, .5 * U, .55 * U, '#d6ff7a'); ell(kx + f * 4.6 * U, ky - 5.4 * U, .45 * U, .5 * U, '#d6ff7a'); }
     if (S.openNut) { const nx = S.openNut.fx * W, ny = S.openNut.fy * H, a = .25 + .2 * Math.sin(t * 2.5); ctx.strokeStyle = 'rgba(255,255,255,' + a + ')'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(nx - U, ny - 3 * U); ctx.lineTo(nx + U, ny - 3 * U); ctx.moveTo(nx, ny - 4 * U); ctx.lineTo(nx, ny - 2 * U); ctx.stroke(); }
     ctx.textAlign = 'center'; ctx.font = '600 ' + (3.2 * U) + 'px Fredoka, sans-serif';
-    ctx.fillStyle = 'rgba(255,246,227,' + (.35 + .2 * Math.sin(t * 3)) + ')'; ctx.fillText('Crawl: A / D or hold the screen edges', W / 2, 93 * U);
+    ctx.font = '700 ' + (4.2 * U) + 'px Fredoka, sans-serif'; ctx.lineWidth = 1.2 * U; ctx.strokeStyle = 'rgba(0,0,0,.8)'; const hint = TOUCH ? 'Hold the left or right edge to crawl — to the eyes' : 'Crawl with A / D — to the eyes';   // v070: readable, and without key names on a phone
+    ctx.strokeText(hint, W / 2, 93 * U); ctx.fillStyle = 'rgba(255,246,227,' + (.8 + .2 * Math.sin(t * 3)) + ')'; ctx.fillText(hint, W / 2, 93 * U);
+    if (TOUCH) { const side = S.kt.fx < S.cr.fx ? -1 : 1; for (const sd of [-1, 1]) { const ax = sd < 0 ? 5 * U : W - 5 * U, ay = H * .5, a = (sd === side ? .7 + .3 * Math.sin(t * 5) : .25); ctx.fillStyle = 'rgba(255,246,227,' + a + ')'; ctx.beginPath(); ctx.moveTo(ax + sd * 3 * U, ay); ctx.lineTo(ax - sd * 2 * U, ay - 4 * U); ctx.lineTo(ax - sd * 2 * U, ay + 4 * U); ctx.closePath(); ctx.fill(); } }
   }
 }
 function drawHintRing(t) {
@@ -1382,8 +1389,8 @@ cv.addEventListener('pointerdown', e => {
       if (S.screen === 'beach' && y < .24 * H) { goForest(); return; }
       if (S.screen === 'forest' && y > .84 * H) { goBeach(); return; }
     }
-    if (x < W / 3 || x > W * 2 / 3) { S.pointers.set(e.pointerId, { x, walk: true }); try { cv.setPointerCapture(e.pointerId); } catch (_) {} }
-  } else if (S.screen === 'swim') { S.pointers.set(e.pointerId, { x }); try { cv.setPointerCapture(e.pointerId); } catch (_) {} }
+    if (x < W / 3 || x > W * 2 / 3) { S.tapGo = { d: x < W / 3 ? -1 : 1, bis: S.time + 0.45 }; S.pointers.set(e.pointerId, { x, walk: true }); try { cv.setPointerCapture(e.pointerId); } catch (_) {} }
+  } else if (S.screen === 'swim') { if (x < W / 3 || x > W * 2 / 3) S.tapGo = { d: x < W / 3 ? -1 : 1, bis: S.time + 0.45 }; S.pointers.set(e.pointerId, { x }); try { cv.setPointerCapture(e.pointerId); } catch (_) {} }
 });
 cv.addEventListener('pointermove', e => { const p = S.pointers.get(e.pointerId); if (p) p.x = e.clientX; });
 ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(n => cv.addEventListener(n, e => { S.pointers.delete(e.pointerId); petHoldCancel(); }));
@@ -1538,6 +1545,7 @@ WELT.api = {
   rumSetzen(v) { S.rum = Math.max(0, Math.round(v)); updateHUD(); },   // v055: rum pays for fire — the island's Burn
   gruenSetzen(v) { S.green = Math.max(0, Math.round(v)); updateHUD(); },
   zustand: () => S._snap || beachState(false),
+  zustandJetzt: () => { const st = beachState(S._snap ? S._snap.first : false); st.b._mid = { crabs: S.crabs.length, buried: !!(S.crabs[0] && S.crabs[0].buried), tide: S.tide, palmNuts: S.palmNuts, poolSips: S.poolSips }; return st; },   // v070: the ebb as it stands (crabs left, tides left) — a reload neither re-rolls the crabs nor runs the tower's chores again
   kofferDa: () => !!S.kofferDa,   // v061
   traumOffen: () => { S.seen.dreamOpen = true; updateHUD(); },
   grund: () => S_GRUND, upgListe: () => UPGRADES.map(u => ({ id: u.id, name: u.name, max: u.max || 1 })),   // v062: for the logbook
@@ -1590,7 +1598,8 @@ WELT.api = {
   tagOhneKampf(grund) { if (S.round) finishRound(grund || 'island', 0, 0, 0, 0, !!SPIEL.turm()); S.day++; setupEbb(false); },   // no beach fight this flood
   tagSetzen(t) { S.day = t; S.mapUnlocked = true; updateHUD(); },
 };
-{ const a = SPIEL.autosaveInfo(); if (a) { $('tlCont').style.display = ''; $('tlCont').textContent = 'CONTINUE · TIDE ' + a.tide; } $('tlVer').textContent = __VERSION__; }
+{ const a = SPIEL.autosaveInfo(); if (a) { $('tlCont').style.display = ''; $('tlCont').textContent = 'CONTINUE · TIDE ' + a.tide; } $('tlVer').textContent = __VERSION__;
+  if (!SPIEL.speicherTest()) { const w = document.createElement('div'); w.id = 'tlWarn'; w.textContent = '⚠ This browser will not keep your game here. Play it from its web address (https) — or copy the logbook in the cat window before you leave.'; $('tlMenu').appendChild(w); } }   // v070: said before the first step, not after the loss
 
 // ================= resize / init =================
 function resize() {

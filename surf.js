@@ -45,9 +45,9 @@ const MSG = {
   5: ['NEW: BACKFLIP', 'Boost + a steep spot on the wave = Backflip.', 'The steeper the face where you take off, the better.'],
   6: ['More of them', 'No new tricks — just more tadpoles. Keep the flow.', 'Your Dream has VOID now: it saves you when your stamina runs out.'],
   7: ['They pile up', 'Wake lice swim up out of your wake and follow you. The stamp slips off them.', 'They cannot catch you — but the wave will throw them. Next stage: A.'],
-  8: ['NEW: WAVE CYCLE — tap A (or the left half)', 'A green A sign swims at you ahead of a wall: tap A the moment you pass it.', 'Boomerang back · climb · leap over the wall · dive where they came down.'],
+  8: ['NEW: WALL LEAP — tap A (or the left half)', 'A green A sign swims at you ahead of a wall: tap A the moment you pass it.', 'Boomerang back · climb · leap over the wall · dive where they came down.'],
   9: ['Walls and mussels', 'The walls bring fliers now. Between them: mussels.', ''],
-  10: ['The reef — and him', 'Walls and mussels — and at the end the First Mate.', 'Jump (D) or dash-dive (A) under his shockwave.'],
+  10: ['The reef — and him', 'Walls and mussels — and at the end the First Mate.', 'Jump (D) or Wall Leap (A) under his shockwave.'],
   glide: ['NEW: GLIDER — hold D in the air', 'Jump (D), then keep D held: the palm-leaf glider opens and carries you.', 'Try it on the small crevasse ahead (sign HOLD). Up to 2 s per jump.'],
   nestNo: ['No glider!', 'Without the glider the wide crevasses are deadly.', 'Jump the small ones (D) — and hope.'],
   flame: ['NEW: FLAMETHROWER — hold A', 'Tap A at the sign as always — then keep A held.', 'It burns through the climb and the whole leap, until you dive.'],
@@ -64,6 +64,7 @@ function stageDef(cfg) {
   st.trickCap = st.n <= 3 ? 0 : st.n === 4 ? 1 : 2;
   st.signs = st.n <= 11;
   st.army = cfg.army || 5;
+  const sn = cfg.seen || {}; st.les = { eel: sn.eelL || 0, cloud: sn.cloudL || 0, barrel: sn.barrelL || 0 };   // v070: lessons go by what he has met, not by the stage number (the tower and the cat's jumps skip stages)
   return st;
 }
 // the script of a stage: spawn events (at the screen edge) and messages (when Robinson gets there), all on the water distance
@@ -75,6 +76,8 @@ function buildLevel(st, rng, fl) {
   const add = (k, at, o) => ev.push(Object.assign({ k, w: at }, o || {}));
   const tutAus = (() => { try { return localStorage.getItem('robinson_tutorials') === 'off'; } catch (e) { return false; } })();   // v061: tutorials off → no lesson banners
   const msg = key => { if (!tutAus) msgs.push({ w: w, key, lines: typeof key === 'string' || typeof key === 'number' ? MSG[key] : key }); };
+  const neu = lines => msgs.push({ w: w, key: lines, lines });   // v070: a card for something new comes even with the tutorials off
+  const les = st.les || { eel: 0, cloud: 0, barrel: 0 };
   const ride = (len, rate, pair, rows) => {   // tadpoles (rate per second at base tempo) and low heart rows you ride through
     fill += len; len *= fl; if (rows) rows *= fl; kick(w + len * 0.45, len);
     rate *= n >= 2 ? 1.1 : 1;   // v053: denser riding stretches from stage 2 (the stamp has no exceptions any more)
@@ -106,7 +109,7 @@ function buildLevel(st, rng, fl) {
   const crevasse = tp => { tp = tp || gapT(); calm(300); if (tp === 'mus') { w += 380; add('mus', w, {}); w += 30; } else w += 200;
     const len = Math.round(st.v * (tp === 'practice' ? 0.3 : tp === 'hop' ? 0.42 : tp === 'mus' ? 0.8 : 1.3)); add('gap', w, { len, type: tp }); w += len; calm(400); };
   if (K === 'cabin') { msg(['His den', 'He is at home here. Crevasses in the scree: jump them (D) — hold D to glide.', 'A good A lands you right on top of him.']); calm(500); if (st.glide) { msg('glide'); calm(600); crevasse('practice'); calm(300); } else msg('nestNo'); crevasse(); wall({ n: 9, u: 2, f: 1 }); crevasse(); calm(300); boss(); return { ev, msgs, end: 1e9 }; }
-  if (K === 'cabin' || K === 'last') { msg(K === 'last' ? ['HIS LAST STAND', 'Jump (D) or dash-dive (A) the Severance wave — it sweeps the whole face.', 'No reef this time — only him.'] : ['His cabin', 'He is at home here. Jump or dive his shockwave; after a miss he is open.', 'Dash into him — or stamp him from high up.']); calm(500); boss(); return { ev, msgs, end: 1e9 }; }
+  if (K === 'cabin' || K === 'last') { msg(K === 'last' ? ['HIS LAST STAND', 'Jump (D) or Wall Leap (A) the Severance wave — it sweeps the whole face.', 'No reef this time — only him.'] : ['His cabin', 'He is at home here. Jump or dive his shockwave; after a miss he is open.', 'Dash into him — or stamp him from high up.']); calm(500); boss(); return { ev, msgs, end: 1e9 }; }
   if (K === 'nest') { msg(st.glide ? 'glide' : 'nestNo'); calm(900); if (st.glide) { crevasse('practice'); calm(400); }   // v055: a longer start with a practice crevasse
     msg(['Into the nest', 'Rotten scree with crevasses. The amber sign says how to cross: JUMP (D), MUSSEL (jump from the mussel), HOLD (glide).', 'Falling in costs all your stamina — only a charged VOID saves you.']); calm(500); crevasse('hop'); wall({ n: 9, u: 3, f: 1 }); chain(3); crevasse(); wall({ n: 10, u: 3, f: 2 }); crevasse(); wall({ n: 10, u: 4, f: 2 }); return { ev, msgs, end: w + 400 }; }
   if (K === 'army') {
@@ -128,11 +131,16 @@ function buildLevel(st, rng, fl) {
     case 9: msg(9); calm(600); wall({ n: 8, u: 3, f: 1 }); chain(3); wall({ n: 9, u: 3, f: 2 }); chain(4); wall({ n: 10, u: 3, f: 2 }); chain(3); wall({ n: 10, u: 4, f: 2 }); break;
     case 10: msg(10); calm(600); [3, 5, 4, 4].forEach((k, i) => phrase(i, k, { n: 9 + i, u: 3 + (i >> 1), f: 2 })); break;   // v054: varied phrases
     default: {   // 11+: like 10 without the boss — longer, faster, more
-      const k = n - 10; msg(n === 15 ? ['NEW: BLACK EELS', 'They come up from below and swim faster than the water.', 'Stamp them a few times — or let the cat have them (Eel Catcher).'] : n === 27 ? ['NEW: THE BARREL', 'Somewhere in this stage the wave stands up and curls right over you.', 'When the sign says PULL IN: hold A.'] : n === 28 ? ['THE BARREL AGAIN', 'It comes back this stage. Under the curtain: PULL IN — hold A.', 'On the way out hold A and let go at the wake.'] : n === 20 ? ['NEW: POISON CLOUDS', 'A black cloud stops over you and rains poison where you ride.', 'When it flashes A!, tap A: climb back and leap out of the rain.'] : n === 21 ? ['POISON CLOUDS', 'It rains on the stretch where you ride. Tap A when it flashes A!', 'Tap much too early and you come down in the rain again.'] : ['Stage ' + n, 'Longer, faster, more of everything.', '']); calm(500);   // v061: a new monster every 5 stages
+      const k = n - 10;
+      if (n >= 27 && les.barrel < 2) neu(les.barrel ? ['THE BARREL AGAIN', 'It comes back this stage. Under the curtain: PULL IN — hold A.', 'On the way out hold A and let go at the wake.'] : ['NEW: THE BARREL', 'Somewhere in this stage the wave stands up and curls right over you.', 'When the sign says PULL IN: hold A.']);
+      else if (n >= 20 && les.cloud < 2) neu(les.cloud ? ['POISON CLOUDS', 'It rains on the stretch where you ride. Tap A when it flashes A!', 'Tap much too early and you come down in the rain again.'] : ['NEW: POISON CLOUDS', 'A black cloud stops over you and rains poison where you ride.', 'When it flashes A!, tap A: climb back and leap out of the rain.']);
+      else if (n >= 15 && les.eel < 1) neu(['NEW: BLACK EELS', 'They come up from below and swim faster than the water.', 'Stamp them a few times — or let the cat have them (Eel Catcher).']);
+      else msg(['Stage ' + n, 'Longer, faster, more of everything.', '']);
+      calm(500);   // v061: a new monster every 5 stages
       const goal = stageTime(n) * st.v * 1.35;   // v055: phrases until the stage is as long as its time (it ran ~60 s instead of ~90)
       let brl = false;   // v064: one barrel per stage, in the second half (v066: from stage 27 — the first ride after Jan's T40)
       for (let i = 0; i < 40 && (i < 3 || w < goal - 900); i++) {
-        if (n >= 27 && !brl && w > goal * 0.5) { brl = true; if (n <= 28) msg(['THE BARREL', 'The wave stands up and curls over you. Under the curtain: PULL IN — HOLD A.', 'Inside: A leaps, D jumps. On the way out HOLD A — let go at the wake.']); w += st.v * 4; add('barrel', w); w += st.v * 5.6; }   // v069: about four seconds of open water before it, on every barrel stage phrase(i + k, Math.min(6, 4 + (i % 3)), { n: Math.min(10 + k + i, 18 + k), u: 3 + (i % 3), f: 2 + Math.floor(k / 2) });
+        if (n >= 27 && !brl && w > goal * 0.5) { brl = true; if (les.barrel < 2) neu(['THE BARREL', 'The wave stands up and curls over you. Under the curtain: PULL IN — HOLD A.', 'Inside: A leaps, D jumps. On the way out HOLD A — let go at the wake.']); w += st.v * 4; add('barrel', w); w += st.v * 5.6; }   // v069: about four seconds of open water before it, on every barrel stage phrase(i + k, Math.min(6, 4 + (i % 3)), { n: Math.min(10 + k + i, 18 + k), u: 3 + (i % 3), f: 2 + Math.floor(k / 2) });
         if (n >= 20 && i % 3 === 1) add('cloud', w + 100);   // v061: poison clouds from stage 20
         if (n >= 15 && i % 2 === 0) for (let q = 0, g = Math.min(6, 3 + Math.floor((n - 15) / 4)); q < g; q++) add('e', w + 60 + q * 26);   // v062: a school of eels between the phrases from stage 15 (3, growing to 6)
         if (i % 2 === 1) { add('kick', w + 140); calm(700); } else ride(700, 0.62 + 0.02 * Math.min(10, k), 0.28, 700); }   // v062: one more, denser wave of tadpoles per phrase pair   // v061: a good free wave between the phrases — with something in the sky
@@ -481,6 +489,7 @@ function reset(cfg) {
   RND = mulberry32(4242 + st.n * 31 + ['wave', 'nest', 'cabin', 'army', 'last'].indexOf(st.kind));
   levelInit(1000 + st.n * 7 + (st.kind === 'wave' ? 0 : 31));   // v047: no seed — the stage is the script
   G.endS = LV.end;
+  if (st.kind === 'wave') { if (st.n >= 15 && st.les.eel < 1) G.seen.eelL = 1; if (st.n >= 20 && st.les.cloud < 2) G.seen.cloudL = st.les.cloud + 1; if (st.n >= 27 && st.les.barrel < 2) G.seen.barrelL = st.les.barrel + 1; }   // v070: this stage showed the lesson
   RIP = P.ripple * Math.min(10, 2.2 + 0.75 * (st.n - 1));   // v053: about twice the old height at stage 8/9
   L = 150 / G.steep; AMP = troughAmp(0) * st.amp;
   G.y = ysAt(G.u, G.S);
@@ -967,7 +976,8 @@ function catVoice(m) {   // only the boss still gets a yowl when he goes down
 function hurt(cause, n) {
   if (P.godMode || G.inv > 0 || G.spit > 0 || G.over || G.won || (G.ifr > 0 && cause !== 'lip')) return;   // v069: the flight out of the barrel is safe — shown by the shield, not by a flicker
   if (G.cyc && G.cyc.ph === 'dash' && cause !== 'gap') return;   // v054: the whole A leap is untouchable
-  const mul = ST.n >= 8 ? 3 : ST.n >= 4 ? 1.5 : 1;   // v062: +50 % — stage 1–3 ×1, 4–7 ×1.5, from 8 ×3 (it was ×2: Jan rarely got hurt)
+  const mul = ST.n >= 12 ? 3 : ST.n >= 8 ? 2 : ST.n >= 4 ? 1.5 : 1;   // v070: ×2 with the first walls, ×3 only from stage 12 (it doubled in one step at 8)
+  //   // v062: +50 % — stage 1–3 ×1, 4–7 ×1.5, from 8 ×3 (it was ×2: Jan rarely got hurt)
   G.dmgAcc = (G.dmgAcc || 0) + (n || 1) * mul; let d = Math.max(1, Math.floor(G.dmgAcc + 1e-6)); G.dmgAcc = Math.max(0, G.dmgAcc - d);
   G.boostM = 0; G.combo = 0;
   if (G.stam - d <= 0 && G.U.void && G.voidC >= 1) {   // VOID saves him: 30 % (+Second Wind) back
@@ -1282,7 +1292,7 @@ function updClouds(dt) {
     c.t += dt; const rx = sx(G.u);
     if (c.ph === 'in') { c.y += ((G.y || 120) - 74 - c.y) * Math.min(1, dt * 1.5); c.x -= 70 * dt;
       if (Math.abs(c.x - rx) < 12 && !G.barrel) { c.ph = 'warn'; c.t = 0; c.cu = (G.restU || G.u) + 6; c.pi = 0;
-        if ((ST.n === 20 || ST.n === 21) && ST.kind === 'wave' && !G.cloudTeach) { G.cloudTeach = true; c.teach = true; } } }   // the first cloud of stage 20 and 21: a big TAP A (v066: no slow motion — the flow stays)
+        if (ST.les && ST.les.cloud < 2 && ST.kind === 'wave' && !G.cloudTeach) { G.cloudTeach = true; c.teach = true; } } }   // the first cloud of stage 20 and 21: a big TAP A (v066: no slow motion — the flow stays)
     else if (c.ph === 'warn' || c.ph === 'rain') {
       c.x += (sx(c.cu + (CLOUD.fwd - CLOUD.back) / 2) - c.x) * Math.min(1, dt * 6); c.y += (ysAt(Math.max(3, c.cu), G.S) - 74 - c.y) * Math.min(1, dt * 3);
       if (c.ph === 'warn' && c.t > CLOUD.warn) { c.ph = 'rain'; c.t = 0; }
@@ -2662,7 +2672,7 @@ function drawOverlay() {
     ctx.fillStyle = 'rgba(0,12,20,.62)'; ctx.fillRect(0, 0, W, H);
     const L = [['nothing', 'Robinson surfs, the stamp fires by itself']];
     if (G.U.jump) L.push(['tap D / right half', 'JUMP — as you ride up a mussel']), L.push(['jump again on landing', 'chains · every jump = boost']);
-    if (G.U.cycle) L.push(['tap A / left half', 'WAVE CYCLE — when a wall comes']);
+    if (G.U.cycle) L.push(['tap A / left half', 'WALL LEAP — when a wall comes']);
     if (G.U.glide) L.push(['hold D in the air', 'GLIDER — over crevasses']);
     if (G.U.flame) L.push(['hold A while climbing', 'FLAMETHROWER']);
     if (G.U.void) L.push(['VOID (charged by hearts)', 'saves you at 0 stamina']);

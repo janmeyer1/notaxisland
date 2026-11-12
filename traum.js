@@ -47,7 +47,7 @@ export const TRAUM = (() => {
   };
   const HEADS = { board: ['The board', 'c', BX, BY, 22], stamp: ['The stamp', 'g', SX, SY, 22], cat: ['The cat', 'r', CX, CY, -12], sap: ['Sap', 'y', 520, 410, -12], roots: ['Roots', 'b', 612, 410, -12], orders: ['Orders', 'v', 820, 410, -12] };
   const GROUP = { board: 'The board', stamp: 'The stamp', cat: 'The cat', void: 'VOID', listen: 'The banyan', sap: 'The banyan · Sap', roots: 'The banyan · Roots', orders: 'The banyan · Orders', elf: 'The banyan · the secret' };
-  const CUR = { green: ['💚', 'hearts'], tails: ['🐟', 'fish tails'], rum: ['🥃', 'rum'], wandel: ['🌀', 'free Wandel'] };
+  const CUR = { green: ['💚', 'hearts'], tails: ['🐟', 'fish tails'], rum: ['🥃', 'rum'], wandel: ['🌀', 'free Kinship'] };
   const FI = { board: 'The board learns what your feet already know.', stamp: 'NO TAX. Still the best thing you ever signed.', cat: 'She pretends not to care. She keeps a list of everything you buy her.', void: 'Rum for a life-saver. I won\'t put that in the books.', listen: 'It hears you better now. So do I.', sap: 'Sap is cash flow with leaves.', roots: 'Roots are covenants. Keep them strong.', orders: 'Orders. Finally something you know how to give.', elf: 'That was me. Thank you for dreaming me out.' };
   const TORT = ['You dream, accountant. Good. Out here it\'s the only planning that counts.', 'Up here you see what you\'ve learned — and what you could. Tap something.', 'Even a castaway has to dream now and then. Especially a castaway.'];
   let root, sz, welt, layer, panel, built = false, offen = false, sel = null, cam = null, box = [1400, 900], bgKey = '', bgN = 0, anim = null, snd = null;
@@ -194,7 +194,7 @@ export const TRAUM = (() => {
   const MINI = {
     deepRoots: '<svg width="210" height="74" viewBox="-105 -37 210 74"><g transform="translate(-55 0)">' + ring(12, '#6ad06a', 5) + ring(22, '#4ea0e0', 4) + ring(32, '#2f6fe8', 3, 1) + '<circle r="4" fill="#ffd45a"/><text y="34" fill="#c8c0a8" font-size="9" text-anchor="middle">before</text></g>' +
       '<text x="0" y="4" fill="#ffd28a" font-size="16" text-anchor="middle">→</text><g transform="translate(55 0)">' + ring(14, '#6ad06a', 5) + ring(24, '#6ad06a', 5) + ring(31, '#4ea0e0', 4) + ring(36, '#2f6fe8', 3, 1) + '<circle r="4" fill="#ffd45a"/><text y="34" fill="#c8c0a8" font-size="9" text-anchor="middle">Deep Roots: +1 ring</text></g></svg>',
-    tower: '<svg width="210" height="54" viewBox="0 0 210 54"><text x="6" y="20" font-size="18">🌊🌊</text><text x="62" y="20" fill="#ffd28a" font-size="14">→</text><text x="84" y="22" font-size="20">🗼</text><text x="114" y="20" fill="#ffd28a" font-size="14">→</text><text x="134" y="22" font-size="18">🦀🥥🥃</text><text x="6" y="46" fill="#c8c0a8" font-size="10">unused beach tides become beach chores</text></svg>'
+    tower: '<svg width="210" height="54" viewBox="0 0 210 54"><text x="6" y="20" font-size="18">🌊🌊</text><text x="62" y="20" fill="#ffd28a" font-size="14">→</text><text x="84" y="22" font-size="20">🗼</text><text x="114" y="20" fill="#ffd28a" font-size="14">→</text><text x="134" y="22" font-size="18">🦀🥥🥃</text><text x="6" y="46" fill="#c8c0a8" font-size="10">unused beach hours become beach chores</text></svg>'
   };
   function zeichne(fahrt, neuIds) {
     const K = knoten(), z = zustand(K);

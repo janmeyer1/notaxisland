@@ -67,13 +67,13 @@ function drawTinted(c, t, col, bx, by, bw, bh) {
 const stage = () => STAGES.filter(s => G.wandel >= s[0]).pop()[1];
 const isAccountant = () => G.wandel <= 4;
 const rootCount = () => T.filter(t => t.rooted).length;
-// v061: spring tides for real achievements — shown loud: banner, float, the tide pill flashes
+// v061: spring hours for real achievements — shown loud: banner, float, the tide pill flashes
 const SPRING_ERFOLG = { roots: 'roots around the banyan', nest1: 'the first nest burned', gecko: 'the gecko is your friend', tower: 'the beach tower stands', offshoot: 'your first offshoot', nest2: 'a nest on the cliffs burned', offensive: 'you held out against an offensive' };
 function springErfolg(key) {
   if (G.springSrc.includes(key)) return false; G.springMax++; G.spring++; G.springSrc.push(key);
-  const txt = '+1 ✨ spring tide — ' + (SPRING_ERFOLG[key] || key); banner(txt); toast('✨ <b>' + txt + '</b><br><small>From now on every tide. Spring tides work on the beach and here.</small>');
+  const txt = '+1 ✨ spring hour — ' + (SPRING_ERFOLG[key] || key); banner(txt); toast('✨ <b>' + txt + '</b><br><small>From now on every tide. Spring hours work on the beach and here.</small>');
   if (G.group) addFloat(G.group.x, G.group.y - 46, '+1 ✨', '#ffe08a'); G.springFlash = G.now; const p = $('hTideP'); if (p) { p.classList.remove('springUp'); void p.offsetWidth; p.classList.add('springUp'); }
-  say1('springErfolg', 'tortoise', 'A spring tide, earned. Every deed like that gives you one more, for good — the golden kind, beach or island.', true); updateHUD(); return true;
+  say1('springErfolg', 'tortoise', 'A spring hour, earned. Every deed like that gives you one more, for good — the golden kind, beach or island.', true); updateHUD(); return true;
 }
 function addWandel(d) { G.wandel = clamp(G.wandel + d, 0, G.wandelMax || WMAX); if (d > 0) { G.wFree += d; unlockRule('wandel'); } }
 const stageIdx = () => STAGES.filter(s => G.wandel >= s[0]).length - 1;
@@ -105,7 +105,7 @@ function crossOk(a, b) {
 function catCan(a, b) { if (T[b].reg === 5) return false; return regOf(T[a].reg) === regOf(T[b].reg); }
 const infStep = () => G.inf >= 8 ? 2 : G.inf >= 5 ? 1 : 0;
 function moveCost(a, b) { const base = RULES.costMove[T[b].type] || 1; return Math.max(0, base - (T[a].rooted && T[b].rooted ? 1 : 0)) + T[b].b + infStep(); }
-function addInf(n) { const was = G.inf; G.inf = clamp(G.inf + n, 0, 12); if (n > 0) unlockRule('befall'); if (was < 5 && G.inf >= 5) prio('tortoise', 'You\'re turning green', 'Befall ' + G.inf + '. The rot is in your lungs, darling — spores, ink, paperwork.\nFrom 5 every step costs 1 tide more, from 8 two more. At 10 you collapse.\nIt clears when you finish what you start: a rot tile scrubbed to 0 (−2), a nest gone (−4). And every flood a well-defended tile lets you breathe: half its defence comes off.', { must: true, key: 'inf5', valid: () => G.inf >= 4 }); }
+function addInf(n) { const was = G.inf; G.inf = clamp(G.inf + n, 0, 12); if (n > 0) unlockRule('befall'); if (was < 5 && G.inf >= 5) prio('tortoise', 'You\'re turning green', 'Blight ' + G.inf + '. The rot is in your lungs, darling — spores, ink, paperwork.\nFrom 5 every step costs 1 hour more, from 8 two more. At 10 you collapse.\nIt clears when you finish what you start: a rot tile scrubbed to 0 (−2), a nest gone (−4). And every flood a well-defended tile lets you breathe: half its defence comes off.', { must: true, key: 'inf5', valid: () => G.inf >= 4 }); }
 // defence: root strength + support from healthy rooted neighbours (max +2) + protected + friend + Crusoe
 function support(t) { let n = 0; t.nb.forEach(x => { const o = T[x]; if (o.rooted && o.b === 0 && o.reg !== 5) n++; }); return Math.min(2, n); }
 function defense(t) { return (t.rooted ? t.rs : 0) + support(t) + (t.prot ? 1 : 0) + (friendOn(t.id) ? 1 : 0) + (G.at === t.id && !G.below ? 1 : 0); }
@@ -139,7 +139,7 @@ function canGrowTo(t) {
   return false;
 }
 // v016: where the rot has won completely, it builds a new nest: a rot-3 tile whose land neighbours are all rot 3 and none of them a nest
-// v058: before Listen (at most 10 island tides) the rot beyond the shore region sleeps: its nests do not feed, nothing there spreads
+// v058: before Listen (at most 10 island hours) the rot beyond the shore region sleeps: its nests do not feed, nothing there spreads
 // v059: after Listen (or 10 tides) the regions wake one per tide, the one nearest the banyan first — no avalanche
 function rotSchlaeft(id) {
   if (!tutFertig()) { const n2 = G.nest2; if (G.tut < TUT_SPILL || n2 < 0 || T[n2].source !== 'nest') return true;   // v061: in the tutorial everything sleeps — from the spillover step only the cliff nest acts
@@ -234,7 +234,9 @@ function planFlood(keepOmen) {
       for (let k = 0; k < per; k++) {
         const sc = t => .6 * d[t.id] + .4 * dF[t.id];   // v016: 0.6 × steps to the banyan + 0.4 × steps to the nearest tree or root
         const list = cand.filter(t => omenType(t) === G.omen && !G.targets.includes(t.id) && [...t.nb].some(n => comp[n] === ci)).sort((a, b) => sc(a) - sc(b));
-        if (!list.length) break;
+        if (!list.length) {   // v070: more spearheads than open targets (supply drops) — a second one goes for a tile that is already marked; never three on one
+          const twice = cand.filter(t => omenType(t) === G.omen && G.targets.filter(x => x === t.id).length === 1 && [...t.nb].some(n => comp[n] === ci)).sort((a, b) => sc(a) - sc(b));
+          if (twice.length && k >= 1 + (offActive() ? 1 : 0)) G.targets.push(twice[0].id); else break; continue; }
         const c = G.board.st < 75 && Math.random() < .5 ? list[(Math.random() * list.length) | 0] : Math.random() < .3 ? list[(Math.random() * Math.min(3, list.length)) | 0] : list[0];
         G.targets.push(c.id);
       }
@@ -361,21 +363,24 @@ function cleanPhase() {
 function sapPhase() {
   if (!G.friends.banyan) return 0;
   const sap = sapEstimate(); G.lastSap = sap;
-  const grow = sap * G.prio, prod = sap - grow;
+  let grow = sap * G.prio, prod = sap - grow;
+  if (G.flutHielt && G.flutHielt.n > 0 && G.flutHielt.held === 0) {   // v070: the banyan grows only in a flood in which something was held — its growth sap goes into work instead
+    prod += grow; grow = 0; const [gx, gy] = tileXY(G.banyan); addFloat(gx, gy - 70, 'no growth — nothing held', '#ffb0a0');
+    say1('keinWuchs', 'tortoise', 'Nothing held this flood, so the banyan did not grow — it put the sap into work instead. It grows when the island holds something. Stand somewhere, darling.'); }
   G.sapGrow += grow; G.sapProd += prod;
   const [bx, by] = tileXY(G.banyan); addFloat(bx, by - 52, '+' + (Math.round(sap * 10) / 10) + ' sap', '#c8ffb0');
   { const db = bfsFrom(G.banyan); G.sapFx = { t0: G.now, src: T.filter(t => t.rooted && t.b === 0 && t.id !== G.banyan && t.state > 0).sort((a, b) => db[a.id] - db[b.id]).slice(0, Math.max(1, G.blevel)).map(t => t.id) }; }
   while (G.sapGrow >= growthNeed()) { G.sapGrow -= growthNeed(); G.blevel++; addFloat(bx, by - 70, 'Banyan level ' + G.blevel, '#ffe08a'); say1('growLv', 'tortoise', 'The banyan grew a level. It now works one more tile. More tiles, more sap. You see where this goes.'); }
   if (G.order === 'tower' && G.sapProd >= RULES.towerSap) {
     G.sapProd -= RULES.towerSap; G.tower = true; G.order = 'roots'; addFloat(...tileXY(G.start), 'thorn tower!', '#c8ffb0'); springErfolg('tower'); G.towerRing = true;
-    showCard('The beach tower', 'Strangling roots twist up out of Crab Beach into a tower of thorns. <b>It can tend the beach for you: crabs, coconuts, rum for the tortoise</b> — with the beach tides you leave unused, at the start of each ebb.<br><br>Switch it on with the glowing wheel on the compass (Silver). <span class="gold">+1 ✨ spring tide</span> for building it.');
-    say('tortoise', 'A tower! For me? Well — for the beach. I approve. Switch it on when you like; it only uses the beach tides you would have wasted.');
+    showCard('The beach tower', 'Strangling roots twist up out of Crab Beach into a tower of thorns. <b>It can tend the beach for you: crabs, coconuts, rum for the tortoise</b> — with the beach hours you leave unused, at the start of each ebb.<br><br>Switch it on with the glowing wheel on the compass (Silver). <span class="gold">+1 ✨ spring hour</span> for building it.');
+    say('tortoise', 'A tower! For me? Well — for the beach. I approve. Switch it on when you like; it only uses the beach hours you would have wasted.');
   } else if (G.order === 'tower2' && G.sapProd >= RULES.towerSap && G.tower) {   // v043
     G.sapProd -= RULES.towerSap; G.tower2 = true; G.order = 'roots'; addFloat(...tileXY(G.start), 'tower II!', '#ffe08a');
     showCard('Tower II', 'A second ring of thorns climbs the beach tower. <b>The beach fights for itself now:</b> the tower rides a stage for you — up to two stages past the last one you rode yourself — at about 70 % of what you usually bring home — it can lose, and your upgrades decide the odds. Bosses stay yours. Tap the right wheel on top of the compass twice (Gold).');
   } else if (G.order === 'ableger' && G.sapProd >= RULES.ablegerSap && G.blevel >= 2) {
     G.sapProd -= RULES.ablegerSap; G.cutting = true; G.order = 'roots'; G.blevel = Math.max(1, G.blevel - 1);
-    prio('tortoise', 'A cutting', 'You\'re carrying a piece of the banyan now. Don\'t sit on it.\nTake it up to the cliffs — Region II — to a free tile next to your roots, and plant it: 1 tide. It becomes a banyan of its own, level 1, and its sap joins the first.', { must: true, urgent: true, key: 'cuttingQuest', ill: 'cutting', valid: () => !!G.cutting });
+    prio('tortoise', 'A cutting', 'You\'re carrying a piece of the banyan now. Don\'t sit on it.\nTake it up to the cliffs — Region II — to a free tile next to your roots, and plant it: 1 hour. It becomes a banyan of its own, level 1, and its sap joins the first.', { must: true, urgent: true, key: 'cuttingQuest', ill: 'cutting', valid: () => !!G.cutting });
   }
   let n = 0;
   if (G.order === 'roots') while (G.sapProd >= RULES.sapPerRoot && n < 4) { const t = rootPick(); if (!t) break; t.rs++; G.sapProd -= RULES.sapPerRoot; n++; addFloat(...tileXY(t.id), '🌿 root ' + t.rs, '#c8ffb0'); }
@@ -410,7 +415,7 @@ function viewCache() {
 // ---------- rule cards, in the tortoise's voice ----------
 function ruleIll(k) {
   const W = (x, y, on, gold) => '<text x="' + x + '" y="' + y + '" font-size="18" opacity="' + (on ? 1 : .25) + '">' + (gold ? '✨' : '🌊') + '</text>';
-  if (k === 'tide') { let s = ''; for (let i = 0; i < 8; i++) s += W(6 + i * 22, 30, i < 5); return '<svg width="230" height="70">' + s + W(186, 30, true, true) + '<text x="6" y="58" font-size="12" fill="#7a5a32">5 of 8 left · + 1 spring tide</text></svg>'; }
+  if (k === 'tide') { let s = ''; for (let i = 0; i < 8; i++) s += W(6 + i * 22, 30, i < 5); return '<svg width="230" height="70">' + s + W(186, 30, true, true) + '<text x="6" y="58" font-size="12" fill="#7a5a32">5 of 8 left · + 1 spring hour</text></svg>'; }
   if (k === 'spring') return '<svg width="230" height="70"><text x="10" y="30" font-size="13" fill="#7a5a32">map · banyan · gecko</text><text x="10" y="58" font-size="22">✨✨✨</text><text x="100" y="56" font-size="13" fill="#7a5a32">= +3 every tide</text></svg>';
   const tile = (x, y, fill, txt, col) => '<polygon points="' + [[0, -18], [17, -9], [17, 9], [0, 18], [-17, 9], [-17, -9]].map(([a, b]) => (x + a) + ',' + (y + b)).join(' ') + '" fill="' + fill + '" stroke="#3b2a1a" stroke-width="1.2"/><text x="' + x + '" y="' + (y + 5) + '" font-size="13" text-anchor="middle" fill="' + (col || '#fff') + '" font-weight="600">' + txt + '</text>';
   if (k === 'rot' || k === 'nests' || k === 'omen') return '<canvas id="rIllCv" data-k="' + k + '" width="640" height="280" style="width:320px;height:140px"></canvas>';
@@ -466,10 +471,10 @@ function regelnInsel(sel) {
 }
 // ---------- actions ----------
 function spend(n) {
-  if (G.gezeit + G.spring < n) { G.noTide = (G.noTide || 0) + 1; const L = ['Not enough tide left, darling. End the ebb.', 'Still no tide. The sea isn\'t negotiable.', 'Tide: zero. Like your sense of time.']; if (G.noTide <= L.length) say('tortoise', L[G.noTide - 1], true); else toast('Not enough tide · ' + n + ' needed'); return false; }
-  const b = Math.min(G.gezeit, n); G.gezeit -= b; G.spring -= n - b;
+  if (G.gezeit + G.spring < n) { G.noTide = (G.noTide || 0) + 1; const L = ['No hours left, darling. End the ebb.', 'Still no hours. The sea isn\'t negotiable.', 'Hours: zero. Like your sense of time.']; if (G.noTide <= L.length) say('tortoise', L[G.noTide - 1], true); else toast('Not enough hours · ' + n + ' needed'); return false; }
+  const b = Math.min(G.gezeit, n); G.gezeit -= b; G.spring -= n - b; SPIEL.speichernBald();   // v070
   if (n - b > 0) unlockRule('spring');
-  if (n - b > 0) say1('springUse', 'tortoise', 'That was spring tide — the golden kind. Rare. It works on the beach and here, and it\'s always spent last.');
+  if (n - b > 0) say1('springUse', 'tortoise', 'That was a spring hour — the golden kind. Rare. It works on the beach and here, and it\'s always spent last.');
   return true;
 }
 function beachMode() { try { return localStorage.getItem('robinson_beach_mode') || 'real'; } catch (e) { return 'real'; } }   // v030: scenario menu
@@ -497,12 +502,12 @@ function actInner(kind, id) {
       prio('tortoise', 'A washed-up radio', 'Wedged between two rocks: a ship\'s radio in a waterproof case, still blinking. A sticker on the side: PROPERTY OF THE BOARD — RETURN TO MY LEVERAGE.\n\nIt crackles. Someone on the other end has been waiting for you to pick up.', { must: true, urgent: true, ill: 'radio' });   // v063: a window with a picture
       say1('radio', 'briefcase', 'That is their line. They will call. They always call. Don\'t sign anything I haven\'t read.', true); }
     if (firstVisit && t.content && t.content.kind === 'memory' && !G.memories.includes('invoice')) { G.memories.push('invoice'); addIntel(1); setTimeout(() => { showCard('A memory', 'A sodden receipt in the flotsam. <i>“Invoice: one (1) island, paid in full.”</i> Your handwriting.'); say1('memory', 'briefcase', 'I remember that invoice. I was there. I was the one holding it.'); }, 700); }
-    if (t.content && t.content.kind === 'banyan' && !G.friends.banyan && tutFertig()) prio('tortoise', 'The banyan', 'Here it is. The banyan. Older than both of us, and lonelier.\nHow to befriend it: listen to it — right here, 2 free Wandel. I\'ll translate.\nThen it grows roots, drinks sap, and everything else on this island grows from that. This is the most important tree you will ever meet.', { must: true, key: 'banyanVisit', ping: id, ill: 'banyan', btn: 'I\'ll stay' });
+    if (t.content && t.content.kind === 'banyan' && !G.friends.banyan && tutFertig()) prio('tortoise', 'The banyan', 'Here it is. The banyan. Older than both of us, and lonelier.\nHow to befriend it: listen to it — right here, 2 free Kinship. I\'ll translate.\nThen it grows roots, drinks sap, and everything else on this island grows from that. This is the most important tree you will ever meet.', { must: true, key: 'banyanVisit', ping: id, ill: 'banyan', btn: 'I\'ll stay' });
     if (firstVisit && t.content && t.content.kind === 'gecko' && tutFertig()) prio('tortoise', 'Small feet', 'A gecko in the palm grove. It climbs the cliffs to the west — the only way up.\nIt doesn\'t trust people in ties. Two visits:\n· first, 4 breadfruit;\n· another tide, 5 more breadfruit and water — 2 coconuts for a shell — with roots under its feet.\nPicky little thing. Worth it.', { must: true, key: 'geckoQuest', ping: id, ill: 'gecko' });
     if (firstVisit && t.b > 0 && !t.source) say1('rotVisit', 'tortoise', 'You\'re standing in rot. Charming. Scrub it — or at least stay here at flood. You count.');
-    if (G.moves === 1 && !storySeen.firstMove) { say1('firstMove', 'tortoise', 'Look at you, walking. Your island tide 🌊 is the blue waves round the compass, bottom right. Every step costs some. When it\'s gone, the sea comes back whether you\'re done or not.'); SPIEL.ring('#ebbCv'); }   // v062: the right place, with a ring
+    if (G.moves === 1 && !storySeen.firstMove) { say1('firstMove', 'tortoise', 'Look at you, walking. Your island hours 🌊 are the blue waves round the compass, bottom right — eight hours of low water. Every step costs some. When it\'s gone, the sea comes back whether you\'re done or not.'); SPIEL.ring('#ebbCv'); }   // v062: the right place, with a ring
     if (false) say1('omen', 'tortoise', 'Top centre: the Bad Omen. The rot creeps into that kind of land, next to rot — even under the clouds, even land you\'ve never seen.');
-    if (t.b > 0) say1('rotMove', 'tortoise', 'Rot is sticky. Every rot level costs +1 tide to walk into. Roots shave off 1.');
+    if (t.b > 0) say1('rotMove', 'tortoise', 'Rot is sticky. Every rot level costs +1 hour to walk into. Roots shave off 1.');
     scout(id); crusoeSight(id);
     addFloat(x, y - 26, cost ? '−' + cost + ' 🌊' : 'free', '#bff3ec');
   }
@@ -512,7 +517,7 @@ function actInner(kind, id) {
     gainRes(t.content.res, y); t.exh = RULES.exhaustTides; addWandel(-1);
     addFloat(...tileXY(id), '+' + y + ' ' + t.content.icon, '#ffe08a');
     say1('harvest', 'briefcase', '+1 accountant bonus. Efficiency! Booked and filed.');
-    say1('harvest2', 'tortoise', 'Every time you count things, you drift further from us. Wandel −1. The island noticed.');
+    say1('harvest2', 'tortoise', 'Every time you count things, you drift further from us. Kinship −1. The island noticed.');
   }
   if (kind === 'protect') {
     if (!spend(1)) return; t.prot = true; t.protT = G.now; addWandel(1); addFloat(...tileXY(id), 'protected', '#c8ffb0');
@@ -535,7 +540,7 @@ function actInner(kind, id) {
   if (kind === 'gecko') {
     if (!G.geckoFed || G.tide <= G.geckoFedTide || !t.rooted || G.res.fruit < 5 || G.res.coco < 2) return;
     if (!spend(1)) return; G.res.fruit -= 5; G.res.coco -= 2; G.friends.gecko = true; G.geckoTag = G.now + 9; springErfolg('gecko'); addWandel(2);
-    showCard('The gecko', 'It drinks from the coconut shell for a long time. Then it licks the fruit flies off the breadfruit, blinks at you twice, and scurries up the rock wall to the west. <b>The cliffs are open.</b><br><br>It decides to come along. <span class="gold">+1 ✨ spring tide</span> every tide from now on.');
+    showCard('The gecko', 'It drinks from the coconut shell for a long time. Then it licks the fruit flies off the breadfruit, blinks at you twice, and scurries up the rock wall to the west. <b>The cliffs are open.</b><br><br>It decides to come along. <span class="gold">+1 ✨ spring hour</span> every tide from now on.');
     say1('geckoFriend', 'tortoise', 'The cliffs are open. Up there are the First Mate\'s dens — ink-dark nests. Try not to fall off anything.');
   }
   if (kind === 'geckoFeed') {
@@ -548,15 +553,15 @@ function actInner(kind, id) {
     if (G.res.green < RULES.nourishGreen) { toast('You need ' + RULES.nourishGreen + ' 💚.'); return; }
     if (!spend(RULES.nourishCost)) return; spendGreen(RULES.nourishGreen); setRooted(t, true); addWandel(1); addFloat(...tileXY(id), '🌱 root', '#c8ffb0');
     unlockRule('reach');
-    say1('nourish', 'tortoise', 'Rooting is heavy work — four tide and six hearts. You plant; the banyan does the strengthening, every flood, on its own.');
+    say1('nourish', 'tortoise', 'Rooting is heavy work — four hours and six hearts. You plant; the banyan does the strengthening, every flood, on its own.');
     say1('nourishCase', 'briefcase', 'Capital expenditure. Green blood into roots. I approve, reluctantly.');
   }
   if (kind === 'listen') {   // v060: listening IS the friendship — bought right on the banyan's tile, no flood to wait
     if (G.unl.listen && G.friends.banyan) return; if (id !== G.banyan || G.at !== G.banyan || G.phase !== 'ebb') return;
-    if (G.wFree < 2) { toast('Listening costs 2 free Wandel — you have ' + G.wFree + '. Protect, cleanse, plant: kind deeds earn it.'); return; }
+    if (G.wFree < 2) { toast('Listening costs 2 free Kinship — you have ' + G.wFree + '. Protect, cleanse, plant: kind deeds earn it.'); return; }
     G.wFree -= 2; befreunden(true);
     say1('listen', 'tortoise', 'Fine, I\'ll translate. It says: sap comes from the tiles it works. Half goes into growing, half into your roots — unless you learn to ask.');
-    say1('listenCase', 'briefcase', 'A budget! Finally. Wandel spent on influence. I\'ll allow it.');
+    say1('listenCase', 'briefcase', 'A budget! Finally. Kinship spent on influence. I\'ll allow it.');
   }
   if (kind === 'openTree') openTree();
   if (kind === 'descend') { descend(); return; }
@@ -591,7 +596,7 @@ function shooPreis() { return 5 * Math.pow(2, G.shooTide === G.tide ? (G.shooN |
 function lavaPreis() { return 3 * Math.pow(2, G.lavaTide === G.tide ? (G.lavaN || 0) : 0); }
 function rotSelbst() { if (G.flags.rotSelbst) return; G.flags.rotSelbst = true; if (G.catFate !== 'gone' && !SPIEL.katzeWeg()) say1('catEnjoys', 'tortoise', 'Did you see the cat? She pounced on the rot right after you. She seems to enjoy it far too much. Your Dream might know what to do with that.', true); }
 function katzeJagt(t) { return SPIEL.upgB('catShoo') > 0 && G.catFate !== 'gone' && !SPIEL.katzeWeg() && t.b > 0 && !t.source && t.reg !== 5 && (t.id === G.at || T[G.at].nb.has(t.id)) && SPIEL.schwaenze() >= shooPreis(); }
-// v058: the recommended course for the first island tides — straight to the banyan, protect on the way, one flood there, then roots around it
+// v058: the recommended course for the first island hours — straight to the banyan, protect on the way, one flood there, then roots around it
 // v060: the friendship and Listen are one act — bought on the banyan's tile (or in the Dream while standing there)
 function befreunden(karte) {
   if (G.friends.banyan && G.unl.listen) return;
@@ -599,7 +604,7 @@ function befreunden(karte) {
   if (!G.banyans.includes(G.banyan)) G.banyans.unshift(G.banyan);
   if (!G.springSrc.includes('banyan')) { G.springMax++; G.spring++; G.springSrc.push('banyan'); }
   unlockRule('sap'); G.stateDirty = true; renderPanel(); updateHUD();
-  if (karte) showCardWait('The banyan', 'You sit with the sapling and listen. The tortoise translates, slowly. <i>“It says you smell of paper. It says it can fix that.”</i><br><br><b>First roots.</b> <span class="gold">+1 ✨ spring tide</span> every tide from now on. The banyan is level 1: it works its own tile, drinks the sap, and grows — half into itself, half into your roots.<br><br>Plant roots on the tiles around it.', 'Open the banyan').then(() => { openTree(); say1('banyanFriend', 'briefcase', 'Roots are non-depreciating. I checked.'); });
+  if (karte) showCardWait('The banyan', 'You sit with the sapling and listen. The tortoise translates, slowly. <i>“It says you smell of paper. It says it can fix that.”</i><br><br><b>First roots.</b> <span class="gold">+1 ✨ spring hour</span> every tide from now on. The banyan is level 1: it works its own tile, drinks the sap, and grows — half into itself, half into your roots.<br><br>Plant roots on the tiles around it.', 'Open the banyan').then(() => { openTree(); say1('banyanFriend', 'briefcase', 'Roots are non-depreciating. I checked.'); });
 }
 // v060: older saves — friends but not listening, or the banyan missing from the living trees (the v059 bug)
 function freundReparatur() {
@@ -625,21 +630,21 @@ function tutFront() { const n2 = G.nest2; if (n2 < 0) return G.banyan; const c =
 const nestBlase = id => T[id].b > 0 ? 'Burn it · 3 🥃 (you have ' + SPIEL.rum() + ')' : 'Stay here · end the ebb';
 const TUT = [
   { id: 'protect1', ziel: () => G.start, txt: 'Protect Crab Beach', blase: 'Protect this tile', hl: 'protect', fertig: () => T[G.start].prot,
-    rein() { prio('tortoise', 'The island', 'Crab Beach. Tap any tile and it tells you what it is: what walking there costs, what lives there, what threatens it.\nFirst lesson — Protect: +1 defence for the tile, and kind deeds earn Wandel, the island\'s own currency.\nTap the tile you stand on, then "Protect".', { must: true, urgent: true, ping: G.start }); } },
+    rein() { prio('tortoise', 'The island', 'Crab Beach. Tap any tile and it tells you what it is: what walking there costs, what lives there, what threatens it.\nFirst lesson — Protect: +1 defence for the tile, and kind deeds earn Kinship, the island\'s own currency.\nTap the tile you stand on, then "Protect".', { must: true, urgent: true, ping: G.start }); } },
   { id: 'walk1', ziel: () => tutErsterSchritt(), txt: 'Walk up the beach', blase: 'Go here first', hl: 'move', skip: () => tutErsterSchritt() === G.banyan, fertig: () => G.at === tutErsterSchritt() },
   { id: 'protect2', ziel: () => tutErsterSchritt(), txt: 'Protect this tile too', blase: 'Protect it', hl: 'protect', skip: () => tutErsterSchritt() === G.banyan, fertig: () => T[tutErsterSchritt()].prot,
     rein() { say1('tutRes', 'tortoise', 'Breadfruit, coconuts — you won\'t pick them yourself. Roots do that later: every rooted food tile brings some in, every flood. Protect it now, it pays off then.', true); } },
   { id: 'walk2', ziel: () => { const p = tutPath(G.at, G.banyan); return p.length > 1 ? p[1] : G.banyan; }, txt: 'Walk to the banyan', blase: 'This way · the banyan', hl: 'move', fertig: () => G.at === G.banyan },
-  { id: 'listen', ziel: () => G.banyan, txt: () => G.wFree >= 2 ? 'Listen to the banyan · 2 free Wandel' : 'Earn one more Wandel: protect this tile', blase: () => G.wFree >= 2 ? 'Listen to it' : 'Protect it first (+1 Wandel)', hl: () => G.wFree >= 2 ? 'listen' : 'protect', fertig: () => !!G.friends.banyan,
-    rein() { prio('tortoise', 'The banyan', 'Here it is. Older than both of us, and lonelier.\nListen to it — that is how you make a friend of a tree. It costs 2 free Wandel; you earned them protecting the beach.\nAfter that it drinks, grows, and everything on this island grows from it.', { must: true, urgent: true, ping: G.banyan }); } },
+  { id: 'listen', ziel: () => G.banyan, txt: () => G.wFree >= 2 ? 'Listen to the banyan · 2 free Kinship' : 'Earn one more Kinship: protect this tile', blase: () => G.wFree >= 2 ? 'Listen to it' : 'Protect it first (+1 Kinship)', hl: () => G.wFree >= 2 ? 'listen' : 'protect', fertig: () => !!G.friends.banyan,
+    rein() { prio('tortoise', 'The banyan', 'Here it is. Older than both of us, and lonelier.\nListen to it — that is how you make a friend of a tree. It costs 2 free Kinship; you earned them protecting the beach.\nAfter that it drinks, grows, and everything on this island grows from it.', { must: true, urgent: true, ping: G.banyan }); } },
   { id: 'rootFruit', ziel: () => tutRootZiel(G.fruit), txt: 'Plant a root on the breadfruit', blase: 'Plant a root here', hl: 'nourish', skip: () => G.fruit < 0, fertig: () => T[G.fruit].rooted,
-    rein() { prio('tortoise', 'Roots', 'Now roots. Each one makes the banyan stronger and holds its tile — and on a food tile it harvests for you, every flood.\nWalk to the breadfruit and plant one: 4 tide and 6 hearts. Roots only grow next to roots.', { must: true, urgent: true, ping: G.fruit }); } },
+    rein() { prio('tortoise', 'Roots', 'Now roots. Each one makes the banyan stronger and holds its tile — and on a food tile it harvests for you, every flood.\nWalk to the breadfruit and plant one: 4 hours and 6 hearts. Roots only grow next to roots.', { must: true, urgent: true, ping: G.fruit }); } },
   { id: 'rootCoco', ziel: () => tutRootZiel(tutCoco()), txt: 'Plant a root on the coconut palms', blase: 'Plant a root here', hl: 'nourish', skip: () => tutCoco() === undefined, fertig: () => T[tutCoco()].rooted },
   { id: 'rootGecko', ziel: () => tutRootZiel(G.gecko), txt: 'Plant a root in the palm grove', blase: 'Plant a root here', hl: 'nourish', skip: () => G.gecko < 0, fertig: () => T[G.gecko].rooted,
     rein() { prio('tortoise', 'Small feet', 'A gecko lives in the palm grove. It climbs the cliffs to the west — the only way up.\nIt doesn\'t trust people in ties. Roots under its feet first; later it wants food: breadfruit, then breadfruit and coconuts.', { must: true, urgent: true, ping: G.gecko }); },
     raus() { springErfolg('roots'); } },
   { id: 'cleanse', ziel: () => G.tutRot, txt: 'Cleanse the rot', blase: 'Cleanse the rot here', hl: 'cleanse', skip: () => G.tutRot === -1, fertig: () => G.tutRot < 0 || T[G.tutRot].b === 0,
-    rein() { tutRotSetzen(); if (G.tutRot >= 0) prio('tortoise', 'Rot', 'See that green tint? Rot. It creeps out of the nests and chokes everything — no sap, no harvest, and it eats roots.\nWalk there and Cleanse it: −1 rot for 2 tide. Bare hands. Disgusting. Effective.', { must: true, urgent: true, ping: G.tutRot }); } },
+    rein() { tutRotSetzen(); if (G.tutRot >= 0) prio('tortoise', 'Rot', 'See that green tint? Rot. It creeps out of the nests and chokes everything — no sap, no harvest, and it eats roots.\nWalk there and Cleanse it: −1 rot for 2 hours. Bare hands. Disgusting. Effective.', { must: true, urgent: true, ping: G.tutRot }); } },
   { id: 'nest1', ziel: () => G.nest, txt: () => T[G.nest].b > 0 ? 'Burn the nest · 3 🥃' : 'Hold the nest · end the ebb on it', blase: () => nestBlase(G.nest), hl: () => T[G.nest].b > 0 ? 'burn' : 'end', skip: () => G.nest < 0, fertig: () => T[G.nest].source !== 'nest',
     rein() { const t = T[G.nest]; if (t.state === 0) { t.state = 1; G.stateDirty = true; } prio('tortoise', 'A nest', 'That ooze is a nest — where the rot comes from. Scrubbing won\'t touch it: it has to burn. Rum and fire, 3 🥃 a go — the mussels on the waves carry rum.\nBurn it to zero, then stay on it and end the ebb. At flood it fights back. Win, and it is gone.', { must: true, urgent: true, ping: G.nest }); } },
   { id: 'gecko1', ziel: () => G.gecko, txt: () => G.res.fruit >= 4 ? 'Feed the gecko · 4 🍞' : 'Wait for breadfruit · ' + G.res.fruit + '/4', blase: () => G.res.fruit >= 4 ? 'Feed it · 4 🍞' : 'Your roots harvest 🍞 · ' + G.res.fruit + '/4', hl: 'geckoFeed', skip: () => G.gecko < 0, fertig: () => !!G.geckoFed,
@@ -668,7 +673,7 @@ function tutEnde(still) {
   spawnNests((G.bossPlan || []).map(p => ({ id: p.id, name: p.name, owner: 'bailiff' })), !still);
   if (!G.boss.revealed) bossReveal(still);
   G.frisch = null; G.frisch = mapState('ebb').m;   // the way back after a loss starts here, not before the tutorial
-  if (!still) setTimeout(() => prio('tortoise', 'On your own now', 'That\'s it — you know how the island works. From here on the rot wakes region by region, the nearest first.\nUp on the cliffs: ' + (G.boss.revealed ? bossName() + '\'s dens. ' : '') + 'And something washed up there that the Board would like back. Have a look around.\nThe golden ✨ spring tides: every real deed earns one more, for good.', { must: true, urgent: true }), 5200);
+  if (!still) setTimeout(() => prio('tortoise', 'On your own now', 'That\'s it — you know how the island works. From here on the rot wakes region by region, the nearest first.\nUp on the cliffs: ' + (G.boss.revealed ? bossName() + '\'s dens. ' : '') + 'And something washed up there that the Board would like back. Have a look around.\nThe golden ✨ spring hours: every real deed earns one more, for good.', { must: true, urgent: true }), 5200);
   planFlood(true); updateHUD();
 }
 // v061: new nests come only from the story — the camera flies there, the cloud stays
@@ -708,7 +713,7 @@ function plantWhy(t) {
   if (t.id !== G.at) return 'walk here first'; return '';
 }
 function canPlant(t) { return !plantWhy(t); }
-// Wandel widens Crusoe's own sight: on arrival he looks over the edges into the neighbouring tiles
+// Kinship widens Crusoe's own sight: on arrival he looks over the edges into the neighbouring tiles
 function crusoeSight(id) {
   const si = stageIdx(); if (si < 1) return;
   T[id].nb.forEach(n => { if (T[n].state > 0) return; (BP[id + '_' + n] || []).forEach((p, i) => { if (i % 4 === 0) revealAt(p[0], p[1], 14 + 10 * si); }); if (coverage(n) >= RULES.scoutCover) markScouted(n); });
@@ -828,7 +833,7 @@ function applyBeach(silent) {
   const L = [];
   L.push('<b>Beach · wave ' + r.wave + '</b> — ' + (r.win ? '<span style="color:#2d6b3a">won</span>' : '<span style="color:#b0351c">lost</span>') + ' · ' + r.kills + '/' + r.total + ' monsters');
   L.push('💚 earned ' + r.earned + ' → stock <b>' + G.res.green + '</b> (one stock for beach and island)');
-  L.push('🌊 island tide <b>' + RULES.baseTide + '</b> + <span class="gold">✨ ' + G.springMax + ' spring tide</span> (' + G.springSrc.join(', ') + ') — shared with the beach, spent last');
+  L.push('🌊 island tide <b>' + RULES.baseTide + '</b> + <span class="gold">✨ ' + G.springMax + ' spring hour</span> (' + G.springSrc.join(', ') + ') — shared with the beach, spent last');
   if (G.boss.fight) L.push(bossBeach(!!r.bossDown));
   if (r.turret) L.push('🌿 Your thorn tower fought at the waterline.');
   if (G.friends.gecko) L.push('🦎 The gecko is still learning to swim. (Beach fights come later.)');
@@ -846,7 +851,7 @@ function applyBeachSim(silent) {   // test switch (scenario menu): the old simul
   L.push('<b>Beach · wave ' + wave + '</b> — ' + (win ? '<span style="color:#2d6b3a">won</span>' : '<span style="color:#b0351c">lost</span>' + (streak > 1 ? ' (' + streak + ' in a row)' : '')) + ' · ' + kills + '/' + total + ' monsters');
   L.push('💚 earned ' + earned + ', ' + spentB + ' spent on the beach → shared stock <b>' + stock + '</b>');
   L.push('Map has used ' + G.mapSpent + ' 💚 so far → <b>' + G.res.green + ' 💚</b> available here');
-  L.push('🌊 map tide <b>' + RULES.baseTide + '</b> + <span class="gold">✨ ' + G.springMax + ' spring tide</span> (' + G.springSrc.join(', ') + ') — shared with the beach, spent last');
+  L.push('🌊 map tide <b>' + RULES.baseTide + '</b> + <span class="gold">✨ ' + G.springMax + ' spring hour</span> (' + G.springSrc.join(', ') + ') — shared with the beach, spent last');
   if (ms.includes('map_unlocked')) L.push('🗺 The survey opened the island map.');
   if (G.boss.fight) L.push(bossBeach(!!win));
   if (ms.includes('root_turret')) L.push('🌿 Beach test: the root turret stands at the waterline.');
@@ -886,9 +891,8 @@ function mapLoad(st) {
   FOG.scout.x.setTransform(1, 0, 0, 1, 0, 0); FOG.scout.x.clearRect(0, 0, FOG.scout.c.width, FOG.scout.c.height);   // fog starts clean, then what was known is revealed
   T.forEach(t => { if (t.state > 0) t.samp.forEach(([x, y], i) => { if (i % 2 === 0) revealAt(x, y, 22); }); });
   if (!('tut' in M.G)) G.tut = 'done';   // v061: older saves are past the tutorial
-  if (!G.fi) { delete G.fiWipe; delete G.fiAt; }   // v063 (Jan): no wipe for now — an old save's wipe memo is withdrawn, the briefcase stays
   freundReparatur();   // v060
-  if (!G.wandelMax || G.wandelMax < WMAX) G.wandelMax = WMAX + Math.max(0, (G.wandelMax || 20) - 20);   // v061: the longer Wandel bar
+  if (!G.wandelMax || G.wandelMax < WMAX) G.wandelMax = WMAX + Math.max(0, (G.wandelMax || 20) - 20);   // v061: the longer Kinship bar
   G.banyans.forEach(id => { if ((id !== G.banyan || G.friends.banyan) && !T[id].rooted) { T[id].rooted = true; T[id].rs = 1; } });   // v024: trees keep root 1, also in old saves
   const [x, y] = tileXY(G.at); G.group = { x, y, tx: x, ty: y, fx: x, fy: y, t: 1 };
   $('bLedger').style.display = G.caseFound ? '' : 'none'; updRulesBtn();
@@ -939,7 +943,7 @@ function bilanz() {   // v033: the island's readable columns of the save file (t
 // ############################ Höhle (Akt 3) ############################
 const CAVE_N = 6;
 // ---------- v017 Act 3: the cave under the mountain — a side-scrolling nightmare, no combat ----------
-// light = green hearts · fear = Befall · the Creditor is never seen, drawn by light · the cat is the tracker
+// light = green hearts · fear = Blight · the Creditor is never seen, drawn by light · the cat is the tracker
 const CV = { on: false };
 const CAVE_LEN = 2150, CAVE_FINDS = [520, 1180, 1840];
 function caveFmt(s) { return s.replace(/\[\[c(\d)=([ABC])\|([^\]]*)\]\]/g, (m, n, k, txt) => (G.caveC[+n - 1] === k ? txt : '')).replace(/\*([^*]+)\*/g, '<i>$1</i>').replace(/\n/g, '<br>'); }
@@ -973,7 +977,7 @@ function caveUpdate(dt) {
   if (C.light) { C.lightAcc += dt; if (C.lightAcc >= 1.2) { C.lightAcc = 0; G.res.green = Math.max(0, G.res.green - 3); G.mapSpent += 3; } }
   // hearts in the walls, only found with light
   C.hearts.forEach(h => { if (!h.got && C.light && Math.abs(h.x - C.x) < 26) { h.got = true; G.mapSpent -= 6; G.res.green += 6; C.msg = { txt: '+6 💚', t: 1.4 }; sfxBell(); } });
-  // fear = Befall
+  // fear = Blight
   let df = C.light ? -.05 : .1; if (C.phase === 'close' && !C.light && !caveMoving()) df += .5;
   if (C.petT > 0) { C.petT -= dt; if (C.petT <= 0) { G.inf = Math.max(0, G.inf - 1.5); C.petCd = 12; C.msg = { txt: 'She purrs. You breathe.', t: 1.8 }; sfxPurr(); } }
   if (C.petCd > 0) C.petCd -= dt;
@@ -1153,7 +1157,7 @@ $('cvPet').addEventListener('click', () => { if (CV.on && !CV.reading && CV.petC
 function caveRecalc() { G.caveT = {}; G.caveC.forEach((k, i) => { const c = CAVE_TEXT.chambers[i] && CAVE_TEXT.chambers[i].choices.find(x => x.k === k); if (c) Object.keys(c.t).forEach(q => G.caveT[q] = (G.caveT[q] || 0) + c.t[q]); }); G.wandelMax = G.caveC[5] === 'A' ? 18 : 20; }
 function caveBite(id) {   // the gecko will not go in
   $('mK').textContent = 'The cave mouth'; $('mH').textContent = 'The gecko'; $('mT').textContent = CAVE_TEXT.entrance.bite; $('mem').style.display = 'flex';
-  $('mR').innerHTML = '<button id="mA">Turn back</button><button id="mB">Go anyway · +1 Befall</button>';
+  $('mR').innerHTML = '<button id="mA">Turn back</button><button id="mB">Go anyway · +1 Blight</button>';
   $('mA').onclick = () => { $('mem').style.display = 'none'; };
   $('mB').onclick = () => { G.flags.caveIn = true; addInf(1); $('mT').textContent = CAVE_TEXT.entrance.go; $('mR').innerHTML = '<button id="mUp">Go in</button>'; $('mUp').onclick = () => { $('mem').style.display = 'none'; act('move', id); }; };
 }
@@ -1176,12 +1180,12 @@ async function endEbb() {
   if (G.phase !== 'ebb' || G.over) return;
   if (G.finale === 1) { toast('Not now — the island is celebrating.'); return; }   // v020: the end of Act 2 plays out first
   if (G.tide >= T0 + 1 && !G.talkEbb) banter();
-  if (G.gezeit >= 3 && G.moves > 0) { G.wasted = (G.wasted || 0) + 1; if (G.wasted === 1) say('tortoise', G.gezeit + ' tide back into the sea. The sea says thanks.'); if (G.wasted === 3) say('tortoise', 'Again? You\'re feeding the ocean now. It isn\'t even hungry.'); }
+  if (G.gezeit >= 3 && G.moves > 0) { G.wasted = (G.wasted || 0) + 1; if (G.wasted === 1) say('tortoise', G.gezeit + ' hours back into the sea. The sea says thanks.'); if (G.wasted === 3) say('tortoise', 'Again? You\'re feeding the ocean now. It isn\'t even hungry.'); }
   if (G.friends.banyan && arms(T[G.banyan]).length) G.bmRef = defense(T[G.banyan]) - attackOn(T[G.banyan]); else G.bmRef = undefined;
   G.phase = 'flood'; G.sel = -1; renderPanel(); updateHUD();
   const ov = G.targets.filter(id => G.tinfo[id] && G.tinfo[id].overflow).length, om = G.targets.length - ov;
   banner('Low tide ends · ' + (G.omen ? 'Bad Omen ' + G.omen + ': ' + om + ' strike' + (om === 1 ? '' : 's') : 'no Bad Omen') + (ov ? ' · ' + ov + ' overflow' : '')); await sleep(1300);   // v036: no click, just the banner
-  // Befall: where Crusoe spends the flood
+  // Blight: where Crusoe spends the flood
   if (!G.below) { const h = T[G.at]; if (h.b > 0) addInf(2); addInf(-Math.floor(defense(h) / 2)); }
   // holding a nest at rot 1 → the nest fight replaces the beach fight
   const heldN = !G.below && T[G.at].source === 'nest' && T[G.at].b === 0 ? G.at : -1;
@@ -1194,11 +1198,11 @@ async function endEbb() {
     else { G.collapse = true; T[G.at].b = 1; T[G.at].rotBorn = G.tide; G.stateDirty = true; await showCardWait('Overwhelmed', 'The nest swallows the light. The last thing you hear is the cat, yowling, very close.<br><br><b>You collapse.</b> The nest closes up again: rot 1. Next ebb you\'ll wake somewhere else.', 'Darkness'); }
   }
   await armyPhase(heldN >= 0);
-  if (G.inf >= 10 && !G.collapse && G.collapses) { G.collapse = true; banner('Befall ' + G.inf + ' · you collapse'); await sleep(1400); }   // v060: the full card only the first time
-  else if (G.inf >= 10 && !G.collapse) { G.collapse = true; await showCardWait('You collapse', 'Befall ' + G.inf + '. Your legs simply stop. The world goes green, then black.<br><br>The cat yowls for help. Next ebb you\'ll wake somewhere else.', 'Darkness'); }
+  if (G.inf >= 10 && !G.collapse && G.collapses) { G.collapse = true; banner('Blight ' + G.inf + ' · you collapse'); await sleep(1400); }   // v060: the full card only the first time
+  else if (G.inf >= 10 && !G.collapse) { G.collapse = true; await showCardWait('You collapse', 'Blight ' + G.inf + '. Your legs simply stop. The world goes green, then black.<br><br>The cat yowls for help. Next ebb you\'ll wake somewhere else.', 'Darkness'); }
   banner(offActive() ? 'High tide · ' + G.board.off.name : 'High tide');
   await sleep(900);
-  let lost = 0, held = 0;
+  let lost = 0, held = 0; G.flutHielt = null;
   if (!G.targets.length) say1('calm', 'tortoise', 'A calm tide. The rot found nothing it fancies. Enjoy it; it never lasts.');
   { const cn = cleanPhase(); if (cn) { banner('The banyan scrubs · −' + cn + ' rot'); await sleep(1100); } }
   for (const id of G.targets.slice()) {
@@ -1218,7 +1222,7 @@ async function endEbb() {
       if ((t.ableger || id === G.banyan) && t.b >= 3) await treeBurn(id);
     } else {
       held++; G.es.held = (G.es.held || 0) + 1; addFloat(x, y, 'rot ' + a + ' vs ' + d + ' · held', '#c8ffb0');
-      if (id === G.at && !G.below) { addWandel(1); addFloat(x, y - 18, '+1 Wandel · you held it', '#ffe08a'); }   // v063: standing your ground pays
+      if (id === G.at && !G.below) { addWandel(1); addFloat(x, y - 18, '+1 Kinship · you held it', '#ffe08a'); }   // v063: standing your ground pays
       if (d >= a + pushNeed()) { erode('be', 1); const src = [...t.nb].filter(n => T[n].b > 0 && !T[n].source).sort((p, q) => T[q].b - T[p].b)[0]; if (src !== undefined) { T[src].b--; addFloat(...tileXY(src), 'pushed back', '#c8ffb0'); } }
     }
     G.stateDirty = true; await sleep(900);
@@ -1230,6 +1234,7 @@ async function endEbb() {
   if (G.over) { say('tortoise', 'Well. That was the banyan.'); await inselVerloren(); return; }
   // the rot feeds its networks, then the banyan works its roots
   await sleep(300);
+  G.flutHielt = { n: held + lost, held };   // v070
   const nh = nestPhase(); if (nh) { banner('The nests feed'); await sleep(1300); }
   { const bb = T[G.banyan].b; if (G.friends.banyan) {   // the banyan's own rot: two warning steps before it falls
     const burnTxt = G.blevel >= 2 ? 'At rot 3 it burns ' + (G.blevel >= 3 ? 'two levels' : 'one level') + ' to push the rot back.' : 'At rot 3 it dies — and the island with it.';
@@ -1241,7 +1246,7 @@ async function endEbb() {
   if (G.over) { await inselVerloren(); return; }
   if (G.friends.banyan) { const sp = sapPhase(); if (sp) { banner('The banyan drinks · +' + (Math.round(sp * 10) / 10) + ' sap'); await sleep(1300); } }
   rotEatsRoots();
-  if (!G.friends.banyan && T[G.banyan].b >= 1 && !G.bWarnF) { G.bWarnF = true; prio('tortoise', 'The banyan is rotting', 'The rot has reached the banyan — and it doesn\'t know you yet.\nGo to it and listen to it (2 free Wandel): the friendship cleans it. At rot 3 it is gone, and the island with it.', { must: true, urgent: true, ping: G.banyan, ill: 'banyanDanger' }); }
+  if (!G.friends.banyan && T[G.banyan].b >= 1 && !G.bWarnF) { G.bWarnF = true; prio('tortoise', 'The banyan is rotting', 'The rot has reached the banyan — and it doesn\'t know you yet.\nGo to it and listen to it (2 free Kinship): the friendship cleans it. At rot 3 it is gone, and the island with it.', { must: true, urgent: true, ping: G.banyan, ill: 'banyanDanger' }); }
   if (T[G.banyan].b >= 3 && (G.friends.banyan ? G.blevel <= 1 : true)) { G.over = true; say('tortoise', 'Well. That was the banyan.'); await inselVerloren(); return; }
   T.forEach(t => { if (t.exh > 0) t.exh--; });
   { const h = ernte(); Object.keys(h).forEach(k => { if (h[k]) gainRes(k, h[k]); }); if (h.fruit || h.coco) { banner('The roots harvest · ' + (h.fruit ? '+' + h.fruit + ' 🍞 ' : '') + (h.coco ? '+' + h.coco + ' 🥥' : '')); await sleep(1000); } }   // v061: roots harvest, Robinson doesn't
@@ -1259,14 +1264,14 @@ function nextEbb() {
   document.querySelectorAll('#insel #chatT .ln.neu').forEach(l => l.classList.remove('neu'));   // v063: a new ebb — last ebb's lines become history
   G.tide++; G.gezeit = RULES.baseTide; G.spring = G.springMax; G.phase = 'ebb'; unlockRule('spring'); G.below = false;
   if (G.collapse) { G.collapse = false; G.collapses++; G.gezeit = 0; G.spring = 0; G.at = G.friends.banyan ? G.banyan : G.start; const [x, y] = tileXY(G.at); Object.assign(G.group, { x, y, tx: x, ty: y, t: 1 }); G.inf = Math.max(0, G.inf - 3);
-    if (G.collapses > 1) setTimeout(() => toast('You wake up · this ebb is lost' + (G.inf >= 7 ? ' · Befall ' + G.inf + ': stand on clean, protected tiles to shake it off' : '')), 300); else setTimeout(() => showCard('You wake up', 'Under the banyan, covered in leaves. ' + (G.catFate === 'gone' ? 'The gecko sits on your shoe, very pleased with itself. It dragged you back. Somehow.' : 'The cat is asleep on your chest; the gecko sits on your shoe, very pleased with itself. They dragged you back.') + '<br><br><b>This ebb is lost</b> — you can barely stand.'), 300); }
+    if (G.collapses > 1) setTimeout(() => toast('You wake up · this ebb is lost' + (G.inf >= 7 ? ' · Blight ' + G.inf + ': stand on clean, protected tiles to shake it off' : '')), 300); else setTimeout(() => showCard('You wake up', 'Under the banyan, covered in leaves. ' + (G.catFate === 'gone' ? 'The gecko sits on your shoe, very pleased with itself. It dragged you back. Somehow.' : 'The cat is asleep on your chest; the gecko sits on your shoe, very pleased with itself. They dragged you back.') + '<br><br><b>This ebb is lost</b> — you can barely stand.'), 300); }
   boardTick(); G.talkEbb = 0; talkRelease(); setTimeout(kursPing, 1600);   // v058
   planFlood(); rettungPruefen(); banner('Low tide · Tide ' + G.tide); applyBeach(); camHome();   // v061: his dens appear when the tutorial ends
   if (tutFertig() && G.tide >= 20 && G.tide % 10 === 0 && G.nachLand !== G.tide) { G.nachLand = G.tide; setTimeout(nachschubSzene, 1400); }   // v063: the Board's supply drop
   if (!G.caseFound && G.tide >= CASE_AT && G.scen !== 'real') caseFound();   // v030: with the real beach the briefcase is a beach find
   if (G.finale === 2 && G.tide >= (G.catAt || 0)) setTimeout(catLeaves, 700);
   { const can = G.friends.banyan && !G.treeSeen && (G.unl.listen || G.wFree >= 2); if (!can) G.treeCanSince = -1; else if (G.treeCanSince < 0 || G.treeCanSince === undefined) G.treeCanSince = G.tide;
-    else if (G.tide - G.treeCanSince >= 2) prio('tortoise', 'The banyan is waiting', 'Two tides now, and you haven\'t opened the banyan once.\nWalk to its tile and tap ' + (G.unl.listen ? '“Open the banyan ▸”' : '“Listen to the banyan” (2 free Wandel)') + '. It shows where the sap goes, and you can teach it things: deeper roots, more growth, cuttings.\nIt has been listening to you. Return the favour.', { must: true, key: 'treeNag', ping: G.banyan, ill: 'banyanCall', valid: () => !G.treeSeen }); }
+    else if (G.tide - G.treeCanSince >= 2) prio('tortoise', 'The banyan is waiting', 'Two tides now, and you haven\'t opened the banyan once.\nWalk to its tile and tap ' + (G.unl.listen ? '“Open the banyan ▸”' : '“Listen to the banyan” (2 free Kinship)') + '. It shows where the sap goes, and you can teach it things: deeper roots, more growth, cuttings.\nIt has been listening to you. Return the favour.', { must: true, key: 'treeNag', ping: G.banyan, ill: 'banyanCall', valid: () => !G.treeSeen }); }
   updateHUD(); renderPanel();
 }
 
@@ -1361,8 +1366,8 @@ function spawnArmies(n) {
   const base = n === 1 ? [5, 6] : [4 + n, 4 + n];
   spots.forEach((id, i) => { G.armies.push({ id: i, at: id, str: base[Math.min(i, 1)], elite: false, dead: false, ph: Math.random() * 6 }); revealArmyTile(id); });
   G.armies.push({ id: spots.length, at: ne, str: 7 + n, elite: true, dead: false, ph: Math.random() * 6 }); revealArmyTile(ne);
-  G.stateDirty = true; unlockRule('armies'); if (n === 1) { SPIEL.geschenk('flame'); setTimeout(() => say('tortoise', 'The banyan sends you fire for those walls: hold A while you climb in the wave cycle — the flamethrower. 🎁'), 4000); }   // v055: fire for the walls — announced on the beach
-  prio('tortoise', n === 1 ? 'Three armies' : 'More armies', 'Look at the nests. Things are crawling out — crabs, rats, paper wasps — in step, like a parade.\nAnd far up in the north-east, past the lagoon, something big: a crab the size of a rowing boat, with a tag on its shell. It is slow. It is coming anyway.\nThey all march on the banyan, and they don\'t stop until they are dead. The red arrows show next flood\'s way.\nStand in their way, or go after them: next to an army, attack — 2 tide a fight. On a tree you get help: the gecko and the tree\'s own thorns.', { must: true, key: 'armies' + n, ping: ne, ill: 'army' });
+  G.stateDirty = true; unlockRule('armies'); if (n === 1) { SPIEL.geschenk('flame'); setTimeout(() => say('tortoise', 'The banyan sends you fire for those walls: hold A through the Wall Leap — the flamethrower. 🎁'), 4000); }   // v055: fire for the walls — announced on the beach
+  prio('tortoise', n === 1 ? 'Three armies' : 'More armies', 'Look at the nests. Things are crawling out — crabs, rats, paper wasps — in step, like a parade.\nAnd far up in the north-east, past the lagoon, something big: a crab the size of a rowing boat, with a tag on its shell. It is slow. It is coming anyway.\nThey all march on the banyan, and they don\'t stop until they are dead. The red arrows show next flood\'s way.\nStand in their way, or go after them: next to an army, attack — 2 hours a fight. On a tree you get help: the gecko and the tree\'s own thorns.', { must: true, key: 'armies' + n, ping: ne, ill: 'army' });
 }
 function armyPath(from) {   // cheapest way to the banyan: rot tiles cost 1, everything else 2
   const dist = new Array(T.length).fill(1e9), prev = new Array(T.length).fill(-1), done = new Array(T.length).fill(false); dist[from] = 0;
@@ -1407,7 +1412,7 @@ async function armyAttack(id) {   // during the ebb: Robinson goes after an army
   G.es.army_atk = (G.es.army_atk || 0) + 1; renderPanel(); updateHUD();
   const won = await armyFight(a, id, true);
   if (won) await armyBeaten(a);
-  else { addInf(3); const [x, y] = tileXY(G.at); addFloat(x, y - 20, 'beaten back · +3 Befall', '#ff9a8a'); say('tortoise', 'That went badly. Lick your wounds; they\'re still coming.'); }
+  else { addInf(3); const [x, y] = tileXY(G.at); addFloat(x, y - 20, 'beaten back · +3 Blight', '#ff9a8a'); say('tortoise', 'That went badly. Lick your wounds; they\'re still coming.'); }
   renderPanel(); updateHUD();
 }
 async function armyHitBuilding(a, id) {
@@ -1566,7 +1571,7 @@ async function nachschubSzene() {
   camGo({ x: (wx + ex) / 2, y: (wy + ey) / 2, z: Math.max(CAM.z, CAM.zMax * .7) }, .8); sfxDrum();
   await sleep(5200);
   const per = 1 + nachschub();
-  await showCardWait('Supplies for the rot', 'A grey barge with the Board\'s flag noses in past the wreck. Crates hit the sand; something green crawls out of them and up into the island.<br><br><b>From now on every rot network sends ' + per + ' spearheads each flood</b> (Bad Omen). The rot is learning this island — every ten tides it gets a little better at it.', 'Noted');
+  await showCardWait('Supplies for the rot', 'A grey barge with the Board\'s flag noses in past the wreck — no crew, no wheelhouse, only a mast with a blinking light. Nobody on it has ever seen you. Its ramp drops, crates slide onto the sand; something green crawls out of them and up into the island.<br><br><b>From now on every rot network sends ' + per + ' spearheads each flood</b> (Bad Omen). The rot is learning this island — every ten tides it gets a little better at it.', 'Noted');
   G.landung = null; camHome();
 }
 function drawLandung(c, t) {
@@ -1574,7 +1579,8 @@ function drawLandung(c, t) {
   c.save(); c.translate(x, y); c.scale(1.6, 1.6);   // the barge: grey hull, a little wheelhouse, the Board's flag
   c.fillStyle = 'rgba(0,0,0,.25)'; c.beginPath(); c.ellipse(0, 6, 34, 6, 0, 0, 7); c.fill();
   c.fillStyle = '#4a5258'; c.beginPath(); c.moveTo(-32, -2); c.lineTo(30, -2); c.lineTo(24, 7); c.lineTo(-28, 7); c.closePath(); c.fill();
-  c.fillStyle = '#2e3438'; c.fillRect(-26, -10, 12, 8); c.fillStyle = '#6b4a2a'; for (let k = 0; k < 4; k++) if (e < 3.4 + k * .35) c.fillRect(-8 + k * 9, -9, 8, 7);
+  c.fillStyle = '#3a4046'; c.fillRect(-27, -6, 6, 4); if (Math.sin(t * 6) > 0) { c.fillStyle = '#ff5a3a'; c.beginPath(); c.arc(-20, -26, 1.6, 0, 7); c.fill(); }   // v070: an unmanned barge — a control box and a blinking mast light, no wheelhouse
+  c.fillStyle = '#6b4a2a'; for (let k = 0; k < 4; k++) if (e < 3.4 + k * .35) c.fillRect(-8 + k * 9, -9, 8, 7);
   c.strokeStyle = '#222'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(-20, -10); c.lineTo(-20, -24); c.stroke(); c.fillStyle = '#b0351c'; c.fillRect(-20, -24, 11, 6); c.fillStyle = '#fff'; c.font = "700 5px 'Fredoka',system-ui"; c.fillText('BOARD', -19, -19.5);
   c.restore();
   if (e > 3.3) for (let k = 0; k < 4; k++) { const ek = e - 3.4 - k * .35; if (ek < 0) continue; const f = clamp(ek / .6, 0, 1), cx = L.ex + (L.lx - L.ex) * (.3 + f * .6) + (k - 1.5) * 8, cy = L.ey + (L.ly - L.ey) * (.3 + f * .6) - Math.sin(f * Math.PI) * 18;
@@ -1791,8 +1797,8 @@ $('fiGo').onclick = () => { $('fiScr').style.display = 'none'; say('tortoise', '
 function caseFound() {   // v019: found on the beach — opens the Intercepted Memos and the Board's offers, plus a reward
   if (G.caseFound) return; G.caseFound = true; G.springMax++; G.spring++; G.springSrc.push('briefcase found');
   $('bLedger').style.display = ''; addIntel(2); updateHUD();
-  if (SPIEL.kofferStrand()) { toast('💼 The briefcase from the beach: +1 spring tide ✨, for good — and the Board\'s memos, bottom left.'); return; }   // v062: the beach already told the find
-  prio('briefcase', 'RECOVERED · one (1) briefcase', 'Found on the beach, between a crab and a coconut. Slightly damp. Contents intact. Mostly.\nYou have been hearing me all along — now you can read the file too: the Board\'s memos, intercepted. Bottom left, 💼 Intercepted Memos.\nRecovered assets: +1 spring tide ✨, for good. And the Board will start making you offers. Read them carefully. I will.', { must: true, key: 'caseFound' });
+  if (SPIEL.kofferStrand()) { toast('💼 The briefcase from the beach: +1 spring hour ✨, for good — and the Board\'s memos, bottom left.'); return; }   // v062: the beach already told the find
+  prio('briefcase', 'RECOVERED · one (1) briefcase', 'Found on the beach, between a crab and a coconut. Slightly damp. Contents intact. Mostly.\nYou have been hearing me all along — now you can read the file too: the Board\'s memos, intercepted. Bottom left, 💼 Intercepted Memos.\nRecovered assets: +1 spring hour ✨, for good. And the Board will start making you offers. Read them carefully. I will.', { must: true, key: 'caseFound' });
 }
 function boardDirective(kind) {
   const O = OFFENSIVES[kind], B = G.board; if (!O || (B.off && !B.off.done)) return;
@@ -1845,13 +1851,13 @@ function bribeTry() {
   if (B.offerHeld === G.tide || PRIO.open || PRIO.q.length || (G.prioShown || 0) > 0) { B.nextOffer = G.tide + 1; return; }   // a more important message this ebb — next ebb
   B.offers++; const k = B.offers, tier = Math.min(4, k); B.nextOffer = G.tide + 5 + 3 * k;   // gaps 8, 11, 14 …
   const of = bribeOffer(tier, k);
-  prio('radio', 'A PRIVATE OFFER' + (tier > 1 ? ' · ' + ['', '', 'SECOND', 'THIRD', 'FINAL'][tier] + ' TIER' : ''), 'From: The Board. Strictly confidential.\n' + of.pitch + '\n\nOn offer: ' + of.what + '.\nPrice: ' + of.price + ' Wandel' + (of.risk ? '. Risk: ' + Math.round(of.risk * 100) + ' % that ' + of.riskTxt : '') + '.\n\n…' + of.aside,
-    { must: true, urgent: true, ill: 'radio', choices: [['Accept · −' + of.price + ' Wandel' + (of.risk ? ' · ' + Math.round(of.risk * 100) + ' % risk' : ''), () => {
+  prio('radio', 'A PRIVATE OFFER' + (tier > 1 ? ' · ' + ['', '', 'SECOND', 'THIRD', 'FINAL'][tier] + ' TIER' : ''), 'From: The Board. Strictly confidential.\n' + of.pitch + '\n\nOn offer: ' + of.what + '.\nPrice: ' + of.price + ' Kinship' + (of.risk ? '. Risk: ' + Math.round(of.risk * 100) + ' % that ' + of.riskTxt : '') + '.\n\n…' + of.aside,
+    { must: true, urgent: true, ill: 'radio', choices: [['Accept · −' + of.price + ' Kinship' + (of.risk ? ' · ' + Math.round(of.risk * 100) + ' % risk' : ''), () => {
         addWandel(-of.price); B.pause = G.tide + 5; B.taken = (B.taken || 0) + 1; of.give(); G.bribeRemind = G.tide + 1;
         if (of.risk && Math.random() < of.risk) { of.bite(); say('briefcase', 'It leaked. ' + of.bitTxt); } else say('briefcase', k === 1 ? 'Wire received. Nobody needs to know. I\'ll know.' : 'Booked. Off the books.');
         funkAntwort(true, B.taken);
         planFlood(true); updateHUD(); renderPanel(); }],
-      ['Decline', () => { B.declined = (B.declined || 0) + 1; addIntel(1); G.bribeRemind = G.tide + 1; funkAntwort(false, B.declined); if (B.declined >= 2) { G.wFree += 1; toast('Declined · +1 free Wandel'); } say('briefcase', B.declined >= 2 ? 'Declined again. They\'ll remember. So will the island.' : 'Declined. Filed under "integrity". Thin folder.'); updateHUD(); }]] });
+      ['Decline', () => { B.declined = (B.declined || 0) + 1; addIntel(1); G.bribeRemind = G.tide + 1; funkAntwort(false, B.declined); if (B.declined >= 2) { G.wFree += 1; toast('Declined · +1 free Kinship'); if (G.caseFound && !G.fi && G.fiWipe === undefined) G.fiWipe = G.tide; } say('briefcase', B.declined >= 2 ? 'Declined again. They\'ll remember. So will the island.' : 'Declined. Filed under "integrity". Thin folder.'); updateHUD(); }]] });   // v070 (Jan): Fi is back — the second refusal on the radio brings the wipe memo, and with it the Dark-Wood Elf in the Dream
 }
 // v058: the comeback — once a game, when the banyan is about to go, the Board makes a generous offer. The hook: it takes everything you have.
 function rettungPruefen() {
@@ -1884,12 +1890,12 @@ async function inselVerloren() {
   G.flags.rettung = 0; $('bLedger').style.display = G.caseFound ? '' : 'none'; fiLabels();   // the Board's rescue: once again after every reset
   updateHUD(); renderPanel(); setTimeout(kursPing, 1200);
 }
-function bribeOffer(tier, k) {   // v061: offers that matter — quiet floods, food and Wandel, a den given up; never more tides
+function bribeOffer(tier, k) {   // v061: offers that matter — quiet floods, food and Kinship, a den given up; never more tides
   const alt = k % 2 === 0, thr = threatLevel(), floods = tier >= 2 ? 2 : 1;
-  const leak = () => { if (G.boss.alive) { G.boss.rec = bossRec(); G.boss.ready = true; return 'Their man heard. ' + bossName() + ' is back at work — at the waterline next flood.'; } G.inf = Math.min(12, G.inf + 3); return 'Spores in the envelope. Befall +3.'; };
+  const leak = () => { if (G.boss.alive) { G.boss.rec = bossRec(); G.boss.ready = true; return 'Their man heard. ' + bossName() + ' is back at work — at the waterline next flood.'; } G.inf = Math.min(12, G.inf + 3); return 'Spores in the envelope. Blight +3.'; };
   const quiet = thr <= 1 ? { what: floods > 1 ? 'the next two waves pass the beach by — no beach fight' : 'this flood\'s wave passes the beach by — no beach fight', give: () => { G.bribeSkip = G.tide + floods - 1; } }
     : { what: floods > 1 ? 'two floods without strikes or spillover on the island' : 'one flood without strikes or spillover on the island', give: () => { G.ruheBis = G.tide + floods - 1; } };
-  const food = { what: (tier >= 2 ? 6 : 4) + ' breadfruit and ' + (tier >= 2 ? 3 : 2) + ' free Wandel', give: () => { gainRes('fruit', tier >= 2 ? 6 : 4); G.wFree += tier >= 2 ? 3 : 2; } };
+  const food = { what: (tier >= 2 ? 6 : 4) + ' breadfruit and ' + (tier >= 2 ? 3 : 2) + ' free Kinship', give: () => { gainRes('fruit', tier >= 2 ? 6 : 4); G.wFree += tier >= 2 ? 3 : 2; } };
   const pitch1 = 'We value your discretion. A short report on island conditions, and we\'ll make it worth your while.', aside1 = 'It\'s a bribe. A well-formatted one. They buy five quiet tides of not falling apart.';
   if (tier === 1) return Object.assign(alt ? food : quiet, { price: 2, risk: 0, pitch: pitch1, aside: aside1 });
   if (tier === 2) { const dens = bossNests(), den = dens.length >= 2 ? dens.find(id => id !== G.boss.at) : undefined;
@@ -1897,9 +1903,9 @@ function bribeOffer(tier, k) {   // v061: offers that matter — quiet floods, f
     let bitTxt = ''; return Object.assign(of, { price: 3, risk: .25, riskTxt: 'it leaks — and their man hears (or worse)', bite: () => { bitTxt = leak(); of.bitTxt = bitTxt; }, pitch: 'Your last report was appreciated. We would like a more detailed one.', aside: 'They\'re raising the stakes. People talk, at this level.' }); }
   if (tier === 3) { const tower = !G.tower, of = tower ? { what: 'the beach tower, finished, free', give: () => { G.tower = true; G.towerPaid = true; if (G.order === 'tower') G.order = 'roots'; springErfolg('tower'); G.towerRing = true; } }
       : { what: 'a cleaning crew: −1 rot on every rot tile in Region I and II (not the nests)', give: () => { T.forEach(t => { if ((t.reg === 1 || t.reg === 2) && t.b > 0 && !t.source) t.b--; }); G.stateDirty = true; } };
-    return Object.assign(of, { price: 4, risk: .4, riskTxt: 'you get caught — and they launch an offensive at once', bite: () => { if (!G.board.off) { boardDirective('restructure'); G.board.off.start = G.tide + 1; G.board.off.end = G.tide + 4; of.bitTxt = 'You were seen. The Board answers with an offensive — next tide.'; } else { G.inf = Math.min(12, G.inf + 4); of.bitTxt = 'You were seen. Befall +4.'; } }, pitch: 'A substantial contribution. For a substantial report.', aside: 'This one has teeth. The Board keeps receipts.' }); }
-  const of = { what: 'a partnership: 120 💚, 6 breadfruit, 4 free Wandel and two quiet floods', give: () => { G.mapSpent -= 120; G.res.green += 120; gainRes('fruit', 6); G.wFree += 4; G.ruheBis = G.tide + 1; G.flags.partner = true; }, price: 5, risk: .6, riskTxt: 'the tortoise finds out — and stops trusting you (−1 spring tide for good)',
-    bite: () => { G.springMax = Math.max(0, G.springMax - 1); G.spring = Math.min(G.spring, G.springMax); G.springSrc.push('lost: the tortoise\'s trust'); of.bitTxt = 'The tortoise knows. One spring tide less, for good.'; }, pitch: 'The Board would like to offer you a seat. A real one. Leather.', aside: 'They don\'t make this offer twice. They make it every time.' };
+    return Object.assign(of, { price: 4, risk: .4, riskTxt: 'you get caught — and they launch an offensive at once', bite: () => { if (!G.board.off) { boardDirective('restructure'); G.board.off.start = G.tide + 1; G.board.off.end = G.tide + 4; of.bitTxt = 'You were seen. The Board answers with an offensive — next tide.'; } else { G.inf = Math.min(12, G.inf + 4); of.bitTxt = 'You were seen. Blight +4.'; } }, pitch: 'A substantial contribution. For a substantial report.', aside: 'This one has teeth. The Board keeps receipts.' }); }
+  const of = { what: 'a partnership: 120 💚, 6 breadfruit, 4 free Kinship and two quiet floods', give: () => { G.mapSpent -= 120; G.res.green += 120; gainRes('fruit', 6); G.wFree += 4; G.ruheBis = G.tide + 1; G.flags.partner = true; }, price: 5, risk: .6, riskTxt: 'the tortoise finds out — and stops trusting you (−1 spring hour for good)',
+    bite: () => { G.springMax = Math.max(0, G.springMax - 1); G.spring = Math.min(G.spring, G.springMax); G.springSrc.push('lost: the tortoise\'s trust'); of.bitTxt = 'The tortoise knows. One spring hour less, for good.'; }, pitch: 'The Board would like to offer you a seat. A real one. Leather.', aside: 'They don\'t make this offer twice. They make it every time.' };
   return of;
 }
 // v061 (C6): how hot the island is right now — 0 calm · 1 skirmishes · 2 high intensity · 3 offensive · 4 near defeat
@@ -1961,7 +1967,7 @@ const BANTER = [
   [() => G.res.fruit >= 3, 'Inventory: breadfruit. I\'m not allowed to count it, am I.', 'You just did. The island noticed.'],
   [() => true, 'Silence is billable, you know.', 'Not here. Here it\'s free. Enjoy it.'],
   [() => true, 'The cat sat on me for an hour.', 'You\'re warm and flat. She\'s practical.'],
-  [() => G.springMax >= 2, 'Spring tide is the only bonus nobody audits.', 'Because the moon doesn\'t take bribes. Unlike some.'],
+  [() => G.springMax >= 2, 'Spring hour is the only bonus nobody audits.', 'Because the moon doesn\'t take bribes. Unlike some.'],
   // v037: the briefcase becomes someone — cracks (1), guilt (2), fear (3); these come first while they last
   [() => fiStufe() >= 1, 'I watched the sunrise. There\'s no line item for that. I looked.', 'There never is, dear. That\'s how you know it\'s worth something.'],
   [() => fiStufe() >= 1, 'I said "I" just now. Asset language is "this unit". Strike that. No — leave it.', 'Leave it. "I" suits you.'],
@@ -2011,22 +2017,22 @@ function islandTips() {
     }
   }
   if (T.some(t => t.state > 0 && !t.source && t.b >= 3 && t.reg !== 5)) say1('rot3', 'tortoise', 'That tile is at rot 3. If it is still full after this ebb, it spills over every flood, omen or not. Cleanse it below three.');
-  if (!G.friends.banyan && G.banyan >= 0 && T[G.banyan].state > 0 && G.wFree >= 2) say1('listenHint', 'tortoise', 'You have 2 free Wandel. The banyan listens if you ask — stand on its tile.');
-  if (G.unl.listen) { const u = UNLOCKS.find(u => !u.later && u.id !== 'elf' && !G.unl[u.id] && (!UPOS[u.id][2] || G.unl[UPOS[u.id][2]]) && G.wFree >= u.cost); if (u) say1('unl_' + u.id, 'tortoise', 'You could teach the banyan "' + u.name + '" now — ' + u.cost + ' free Wandel. Open it on its tile.'); }
+  if (!G.friends.banyan && G.banyan >= 0 && T[G.banyan].state > 0 && G.wFree >= 2) say1('listenHint', 'tortoise', 'You have 2 free Kinship. The banyan listens if you ask — stand on its tile.');
+  if (G.unl.listen) { const u = UNLOCKS.find(u => !u.later && u.id !== 'elf' && !G.unl[u.id] && (!UPOS[u.id][2] || G.unl[UPOS[u.id][2]]) && G.wFree >= u.cost); if (u) say1('unl_' + u.id, 'tortoise', 'You could teach the banyan "' + u.name + '" now — ' + u.cost + ' free Kinship. Open it on its tile.'); }
 }
 function storyTick() {
   const st = stage();
   if (st !== G.lastStage) {
     const sight = { Castaway: 'You see further now — you and the cat. Walk somewhere new and you\'ll glimpse into the next tiles. Worth a second look around.', Synthesis: 'Your eyes have gone green. You see even further. And the banyan grows faster for you.', Islander: 'You see the island the way the birds do. Almost.' };
     if (sight[st] && st === 'Castaway') prio('tortoise', 'You are a ' + st + ' now', sight[st] + (STAGE_FX[st] ? '\n\n(' + STAGE_FX[st] + ')' : ''), { must: true, key: 'sight_' + st });
-    else if (sight[st]) say1('sight_' + st, 'tortoise', 'Wandel stage: ' + st + '. ' + sight[st] + (STAGE_FX[st] ? ' (' + STAGE_FX[st] + ')' : ''), true);   // v061: later stages are a chat line
+    else if (sight[st]) say1('sight_' + st, 'tortoise', 'Kinship stage: ' + st + '. ' + sight[st] + (STAGE_FX[st] ? ' (' + STAGE_FX[st] + ')' : ''), true);   // v061: later stages are a chat line
     const lines = { Castaway: 'Reclassification: Accountant → Castaway. I object, formally.', Synthesis: 'Your handwriting is growing leaves. I cannot file this.', Islander: 'You haven\'t opened me in days. Should I be worried?', Surrender: '…I suppose I\'m a nest for crabs now. Fine.', Accountant: 'Welcome back to Accountant. I knew you\'d come round.' };
     if (lines[st]) say1('stage_' + st, 'briefcase', lines[st]);
     if (STAGES.findIndex(x => x[1] === st) > STAGES.findIndex(x => x[1] === G.lastStage)) erode('be', 3);
     G.lastStage = st;
   }
   islandTips();
-  if (G.phase === 'ebb' && G.gezeit <= 1 && G.tide >= 1 && G.moves > 0) say1('lowTide', 'tortoise', 'Nearly out of tide. End the ebb before the sea ends it for you.');
+  if (G.phase === 'ebb' && G.gezeit <= 1 && G.tide >= 1 && G.moves > 0) say1('lowTide', 'tortoise', 'Nearly out of hours. End the ebb before the sea ends it for you.');
 }
 
 
@@ -2288,8 +2294,8 @@ function ambTick(dt) {
 // ---------- UI ----------
 function goalText() {
   { const k = kurs(); if (k) return k.txt; }   // v058: the recommended course first
-  if (!G.friends.banyan) return T[G.banyan].state > 0 ? '🎯 Listen to the banyan · stand on it, 2 free Wandel ✨' : '🎯 Explore — follow the cat';
-  if (!G.unl.listen) return '🎯 Earn 2 Wandel · listen to the banyan';
+  if (!G.friends.banyan) return T[G.banyan].state > 0 ? '🎯 Listen to the banyan · stand on it, 2 free Kinship ✨' : '🎯 Explore — follow the cat';
+  if (!G.unl.listen) return '🎯 Earn 2 Kinship · listen to the banyan';
   if (!G.friends.gecko) return T[G.gecko].state > 0 ? (G.geckoFed ? '🎯 Gecko, visit 2: 5 🍞 + 2 🥥 + roots' : '🎯 Gecko, visit 1: 4 🍞') : '🎯 Grow roots · find who climbs';
   // v040: the main line of act 2 — the Board's armies and offensive first, then the offshoot, the First Mate's cabins, the nests
   const arm = G.armies.filter(a => !a.dead).length, o = G.board.off;
@@ -2323,12 +2329,12 @@ function threatText() {
 }
 function updateHUD() {
   gruenKoppeln();
-  // tide as waves: blue = the map's own, gold = spring tide; spent ones go grey
+  // tide as waves: blue = the map's own, gold = spring hour; spent ones go grey
   let w = ''; for (let i = 0; i < RULES.baseTide; i++) w += '<span class="wv' + (i < G.gezeit ? '' : ' off') + '">🌊</span>';
   for (let i = 0; i < G.springMax; i++) w += '<span class="wv' + (i < G.spring ? '' : ' off') + '">✨</span>';
   $('hWaves').innerHTML = w;
   $('hG').innerHTML = G.gezeit + '/' + RULES.baseTide + (G.springMax ? ' <span class="gold">+ ✨' + G.spring + '</span>' : ''); $('hT').textContent = G.tide; $('hWm').textContent = G.wandelMax || WMAX || 20;
-  // Wandel: green = already spent, gold = still free to spend; notches = stages, the bright one is next
+  // Kinship: green = already spent, gold = still free to spend; notches = stages, the bright one is next
   const free = Math.min(G.wFree, G.wandel), si = stageIdx(), nx = STAGES[si + 1];
   const wm = G.wandelMax || WMAX, pc = 100 / wm, wb = $('hWb'); wb.querySelector('.ws').style.cssText = 'left:0;width:' + (G.wandel - free) * pc + '%'; wb.querySelector('.wf').style.cssText = 'left:' + (G.wandel - free) * pc + '%;width:' + free * pc + '%';
   wb.querySelectorAll('.nt').forEach(n => n.remove());
@@ -2348,7 +2354,7 @@ function updateHUD() {
     hb.innerHTML = B.alive ? '👁 <b>' + bossName() + '</b> · ' + (B.ready ? '<span class="warn" style="color:#ff9d7a">in the next wave</span>' : 'recovering ' + '●'.repeat(B.rec) + '○'.repeat(bossRec() - B.rec)) + ' · ' + nl + ' nest' + (nl === 1 ? '' : 's') : '👁 The ex-First Mate · <b>fired</b>'; }
   else hb.style.display = 'none';
   { const th = threatText(), e = $('hThreat'); if (e.innerHTML !== th) e.innerHTML = th; e.style.display = th ? 'block' : 'none'; }
-  { const hi = $('hInf'); if (false) { hi.style.display = 'block'; hi.className = 'pill' + (G.inf >= 5 ? ' hot' : ''); hi.innerHTML = '🦠 Befall <b>' + G.inf + '</b>' + (G.inf >= 8 ? ' · fever, steps +1' : G.inf >= 5 ? ' · fever: −2 tide' : '') + (G.below ? ' · 🕳 below the mountain' : ''); } else hi.style.display = 'none'; }
+  { const hi = $('hInf'); if (false) { hi.style.display = 'block'; hi.className = 'pill' + (G.inf >= 5 ? ' hot' : ''); hi.innerHTML = '🦠 Blight <b>' + G.inf + '</b>' + (G.inf >= 8 ? ' · fever, steps +1' : G.inf >= 5 ? ' · fever: −2 hours' : '') + (G.below ? ' · 🕳 below the mountain' : ''); } else hi.style.display = 'none'; }
   const of = G.board.off, ho = $('hOff');
   if (of && !of.done) { ho.style.display = 'block'; ho.innerHTML = offActive() ? '☠ <b>' + of.name + '</b> · ' + (of.end - G.tide) + ' tide' + (of.end - G.tide === 1 ? '' : 's') + ' left' : '⚠ ' + of.name + ' starts in ' + (of.start - G.tide) + ' tide' + (of.start - G.tide === 1 ? '' : 's') + ' — prepare'; } else ho.style.display = 'none';
   $('bEnd').style.display = G.phase === 'ebb' ? 'block' : 'none';
@@ -2356,7 +2362,7 @@ function updateHUD() {
   $('bEnd').classList.toggle('pulse', G.phase === 'ebb' && G.gezeit + G.spring === 0); $('bEnd').classList.toggle('tutRing', G.phase === 'ebb' && G.kursHl === 'end' && G.at === G.kursZ);
   tutTick(); storyTick();
 }
-// cost chips: 🌊 blue, ✨ gold (spent after the blue), 💚 green, Wandel gold-green; red = can't afford
+// cost chips: 🌊 blue, ✨ gold (spent after the blue), 💚 green, Kinship gold-green; red = can't afford
 function chipT(n) {
   if (n === '?') return '<span class="chip tide">? 🌊</span>';
   if (n <= 0) return '<span class="chip nt">free</span>';
@@ -2366,7 +2372,7 @@ function chipT(n) {
   return o;
 }
 const chipG = n => '<span class="chip grn' + (G.res.green < n ? ' no' : '') + '">' + n + ' 💚' + (G.res.green < n ? ' (you have ' + G.res.green + ')' : '') + '</span>';   // v033: have / need when short
-const chipW = (d, spend) => '<span class="chip wan' + (spend && G.wFree < d ? ' no' : '') + '">' + (spend ? d + ' free Wandel' + (G.wFree < d ? ' (you have ' + G.wFree + ')' : '') : (d > 0 ? '+' : '−') + Math.abs(d) + ' Wandel') + '</span>';
+const chipW = (d, spend) => '<span class="chip wan' + (spend && G.wFree < d ? ' no' : '') + '">' + (spend ? d + ' free Kinship' + (G.wFree < d ? ' (you have ' + G.wFree + ')' : '') : (d > 0 ? '+' : '−') + Math.abs(d) + ' Kinship') + '</span>';
 const chipN = (txt, ok) => '<span class="chip nt' + (ok === false ? ' no' : '') + '">' + txt + '</span>';
 const PNAME = { roots: 'roots', 'healthy neighbours': 'neighbours', protected: 'protected', friend: 'friend', you: 'you' };
 function defEq(t) { const d = defense(t), ps = defParts(t); return '🛡 ' + d + (ps.length ? ' = ' + ps.map(p => (PNAME[p[0]] || p[0]) + ' ' + p[1]).join(' + ') : ' — nothing defends it'); }
@@ -2426,13 +2432,13 @@ function renderPanel() {
     else if (G.friends.banyan) { const y = (RULES.sapYield[t.type] || 0) + (t.content && t.content.kind === 'res' ? RULES.fruitSap : 0); roots.push('Not rooted. Rooted and worked: +' + y + ' sap per flood.'); }
     const nr = vc.next;
     if (nr && nr.id === t.id) { const F = flowData(); roots.push('<b>▲ Next root here</b> (' + t.rs + '→' + (t.rs + 1) + ') · ' + whenTxt(floodsTo(G.sapProd, RULES.sapPerRoot, F.prod)) + ' · ' + (G.rootTarget === t.id ? '<span class="gold">your choice</span>' : 'the banyan\'s choice (front line first)')); }
-    if (here && t.rooted && t.b === 0 && G.friends.banyan) roots.push('✋ You stand on roots: +' + handBonus() + ' sap at flood' + (stageIdx() ? ' (Wandel stage ' + stageIdx() + ')' : ' — grows from Castaway on'));
+    if (here && t.rooted && t.b === 0 && G.friends.banyan) roots.push('✋ You stand on roots: +' + handBonus() + ' sap at flood' + (stageIdx() ? ' (Kinship stage ' + stageIdx() + ')' : ' — grows from Castaway on'));
   }
   // 📜 quest & story
   if (t.state === 1) quest.push('The cat smelled ' + (t.content ? { banyan: 'something green and very old', gecko: 'something small with feet', res: 'food', memory: 'paper and salt water', start: 'crabs' }[t.content.kind] : (t.b ? 'rot' : 'nothing special')) + '. Walk in to see properly.');
   if (t.state === 2 && t.content) {
     const c = t.content;
-    if (c.kind === 'banyan') quest.push(G.friends.banyan ? '🌿 The banyan. Your roots start here.' : '🌿 A banyan sapling. <b>Listen to it: stand on this tile, 2 free Wandel.</b>' + (here ? ' <span class="ok">✔ you are here</span>' : ''));
+    if (c.kind === 'banyan') quest.push(G.friends.banyan ? '🌿 The banyan. Your roots start here.' : '🌿 A banyan sapling. <b>Listen to it: stand on this tile, 2 free Kinship.</b>' + (here ? ' <span class="ok">✔ you are here</span>' : ''));
     if (c.kind === 'gecko') { const ck = (ok, txt) => '<span class="' + (ok ? 'ok' : 'bad') + '">' + (ok ? '✔ ' : '✖ ') + txt + '</span>';
       quest.push(G.friends.gecko ? '🦎 The gecko is your friend. The cliffs are open.' : !G.geckoFed ? '🦎 A gecko. <b>Visit 1:</b> ' + ck(G.res.fruit >= 4, '4 🍞') + ' (you have ' + G.res.fruit + ')<br><small>Visit 2, another tide: 5 🍞 + 2 🥥 + roots here.</small>'
         : '🦎 It knows you now. <b>Visit 2</b>' + (G.tide <= G.geckoFedTide ? ' <small>(another tide — not today)</small>' : '') + ': ' + ck(G.res.fruit >= 5, '5 🍞') + ' · ' + ck(G.res.coco >= 2, '2 🥥') + ' · ' + ck(t.rooted, 'roots here')); }
@@ -2455,12 +2461,12 @@ function renderPanel() {
   }
   if (here) {
     if (!t.prot && t.reg !== 5) btns.push(['protect', 'Protect · +1 defence', chipT(1) + chipW(1)]);
-    if (t.b > 0 && t.source !== 'wreck' && t.source !== 'nest') btns.push(['cleanse', 'Cleanse · −1 rot', chipT(2) + chipW(1) + chipN('+1 Befall')]);
+    if (t.b > 0 && t.source !== 'wreck' && t.source !== 'nest') btns.push(['cleanse', 'Cleanse · −1 rot', chipT(2) + chipW(1) + chipN('+1 Blight')]);
     if (katzeJagt(t)) btns.push(['shoo', '🐾 The cat chases it · −1 rot', chipN(shooPreis() + ' 🐟') + chipN('price doubles with each chase this ebb') + chipW(1)]);
     if (t.b > 0 && t.source === 'nest') btns.push(['burn', 'Burn · −' + Math.min(2, t.b) + ' rot', chipT(2) + chipN(RULES.burnRum + ' 🥃') + chipW(1)]);   // v055: scrubbing does nothing on a nest — it has to burn
     if (t.source === 'nest' && t.b === 0) quest.push('<b>🔥 Exposed nest — hold it:</b> end the ebb right here. At flood the nest fights back — ' + (G.boss.alive && G.boss.at === t.id && !G.boss.ready ? '<b>with ' + bossName() + ' at home</b>' : 'without a boss') + '. That fight replaces the beach fight. Leave it, and it grows back.');
     else if (t.source === 'nest') quest.push('Burn it to 0 (🥃 ' + RULES.burnRum + ', Cleanse does nothing here) to expose the nest — then hold it through a flood.');
-    if (t.id === G.cave) { if (G.descent < CAVE_N) btns.push(['descend', 'Descend · chamber ' + (G.descent + 1) + '/' + CAVE_N + (G.descTide === G.tide ? ' (once per ebb)' : ''), chipN('all tide') + chipN('absent at flood') + chipN('light costs 💚')]); else quest.push('🦇 The chambers are behind you. Far below, a crack in the mountain looks down on the lagoon. <i>(Act 4 — not yet built.)</i>'); }
+    if (t.id === G.cave) { if (G.descent < CAVE_N) btns.push(['descend', 'Descend · chamber ' + (G.descent + 1) + '/' + CAVE_N + (G.descTide === G.tide ? ' (once per ebb)' : ''), chipN('all hours') + chipN('absent at flood') + chipN('light costs 💚')]); else quest.push('🦇 The chambers are behind you. Far below, a crack in the mountain looks down on the lagoon. <i>(Act 4 — not yet built.)</i>'); }
     if (t.content && t.content.kind === 'gecko' && !G.friends.gecko) {
       if (!G.geckoFed && G.res.fruit >= 4) btns.push(['geckoFeed', 'Feed the gecko (visit 1)', chipT(1) + chipN('4 🍞') + chipW(1)]);
       if (G.geckoFed && G.tide > G.geckoFedTide && t.rooted && G.res.fruit >= 5 && G.res.coco >= 2) btns.push(['gecko', 'Befriend the gecko (visit 2)', chipT(1) + chipN('5 🍞') + chipN('2 🥥') + chipW(2)]); }
@@ -2492,7 +2498,7 @@ function renderPanel() {
 const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
 $('panel').addEventListener('click', e => { const b = e.target.closest('button'); if (b) act(b.dataset.a, G.sel); });
 $('bEnd').onclick = () => SPIEL.endEbb();   // v030: one End ebb for beach and island
-{ const ui = $('ui'), tr = document.createElement('button'); tr.id = 'bTree'; tr.textContent = '🌳 Banyan'; tr.onclick = () => { if (G.unl.listen) openTree(); else toast(T[G.banyan] && T[G.banyan].state > 0 ? 'Stand on the banyan and listen to it first (2 free Wandel).' : 'Find the banyan first.'); };
+{ const ui = $('ui'), tr = document.createElement('button'); tr.id = 'bTree'; tr.textContent = '🌳 Banyan'; tr.onclick = () => { if (G.unl.listen) openTree(); else toast(T[G.banyan] && T[G.banyan].state > 0 ? 'Stand on the banyan and listen to it first (2 free Kinship).' : 'Find the banyan first.'); };
   ui.insertBefore(tr, $('bRules')); ui.insertBefore($('bBeach'), tr); ui.insertBefore($('bLedger'), $('bRules'));
   const mb = document.createElement('button'); mb.id = 'bMenu'; mb.textContent = '☰'; mb.title = 'Menu'; $('hTideP').appendChild(mb);
   mb.addEventListener('pointerdown', e => e.stopPropagation()); mb.onclick = e => { e.stopPropagation(); $('info').classList.toggle('open'); };
@@ -2529,7 +2535,7 @@ function renderTree() {
   $('treeScr').classList.toggle('elf', !!G.fi);
   const wt = workedTiles().length;
   $('tTop').innerHTML = '<span>🌳 <b>Level ' + G.blevel + '</b> · works ' + wt + ' tile' + (wt === 1 ? '' : 's') + ' (one per level, best first)</span>' +
-    '<span class="gold">Wandel ' + G.wFree + ' free</span>';
+    '<span class="gold">Kinship ' + G.wFree + ' free</span>';
   let c = '<span>Sap split:</span>';
   if (G.unl.fine) [1, .75, .5, .25, 0].forEach(v => { c += '<button data-p="' + v + '" class="' + (G.prio === v ? 'on' : '') + '">' + Math.round(v * 100) + '% grow</button>'; });
   else if (G.unl.coarse) [[1, 'All growth'], [.5, 'Balanced'], [0, 'All production']].forEach(([v, n]) => { c += '<button data-p="' + v + '" class="' + (G.prio === v ? 'on' : '') + '">' + n + '</button>'; });
@@ -2555,7 +2561,7 @@ function renderTree() {
 // v061: the current order as its own block — what is being built, how far, what it brings
 const ORD_INFO = {
   roots: ['🌿', 'Roots', 'Production sap strengthens your roots, one step for every ' + RULES.sapPerRoot + ' sap. Stronger roots hold their tile better and the banyan reaches further.'],
-  tower: ['🗼', 'Beach tower', 'A thorn tower on Crab Beach (' + RULES.towerSap + ' sap). When it stands it does your beach chores with your leftover beach tides: crabs, coconuts, rum for the tortoise — Silver on the compass.'],
+  tower: ['🗼', 'Beach tower', 'A thorn tower on Crab Beach (' + RULES.towerSap + ' sap). When it stands it does your beach chores with your leftover beach hours: crabs, coconuts, rum for the tortoise — Silver on the compass.'],
   tower2: ['🗼', 'Tower II', 'A second ring (' + RULES.towerSap + ' sap). Then the tower also rides beach waves up to two stages past your own last ride, at about 70 % of your haul — it can lose, your upgrades set the odds. Gold on the compass.'],
   clean: ['🧹', 'Clean rot', 'Production sap scrubs rot: ' + RULES.cleanSap + ' sap for −1 rot — the banyan first, then rot 3 on your roots, then the front.'],
   ableger: ['🌱', 'Offshoot', 'A living branch (' + RULES.ablegerSap + ' sap, the banyan shrinks a level). Carry the cutting up the cliffs and plant it: a second banyan that works its own tiles.']
@@ -2575,7 +2581,7 @@ function ernteBlock() {
 // v056: what the banyan could learn now lives in the Dream — here only a hint and the way there
 function traumHinweis() {
   const ns = UNLOCKS.map(islandNode), ok = ns.filter(n => n.state === 'buy'), poor = ns.filter(n => n.state === 'poor').sort((a, b) => a.cost - b.cost);
-  $('tDreamHint').innerHTML = ok.length ? '<b>' + ok.length + ' lesson' + (ok.length > 1 ? 's' : '') + '</b> you could teach the banyan now — in your Dream.' : poor.length ? 'Next lesson in your Dream: <b>' + poor[0].name + '</b> · ' + poor[0].cost + ' free Wandel (you have ' + G.wFree + ').' : 'Your Dream shows what the banyan has learned.';
+  $('tDreamHint').innerHTML = ok.length ? '<b>' + ok.length + ' lesson' + (ok.length > 1 ? 's' : '') + '</b> you could teach the banyan now — in your Dream.' : poor.length ? 'Next lesson in your Dream: <b>' + poor[0].name + '</b> · ' + poor[0].cost + ' free Kinship (you have ' + G.wFree + ').' : 'Your Dream shows what the banyan has learned.';
   $('tDream').classList.toggle('ready', ok.length > 0);
 }
 $('tDream').onclick = () => TRAUM.zeigen();
@@ -2603,7 +2609,7 @@ function drawFlow() {
     let label = r.icon + ' ' + r.name; while (c.measureText(label).width > srcR - 34 * z && label.length > 4) label = label.slice(0, -2) + '…';
     c.fillText(label, 8, y); c.font = font(12, true); c.textAlign = 'right'; c.fillStyle = r.hand ? '#a8801a' : '#2f6f26'; c.fillText('+' + r.v, srcR, y);
     if (on) { const wd = Math.max(1.5, r.v * u), ty = nodeY - Tw / 2 + cum + r.v * u / 2; cum += r.v * u; flowLine([srcR + 4, y, (srcR + nodeX) / 2, y, (srcR + nodeX) / 2, ty, nodeX, ty], wd, r.hand ? '#e0b23a' : '#5aa83a'); }
-    else if (r.hand) { c.font = font(10); c.textAlign = 'left'; c.fillStyle = '#7a5a32'; c.fillText(stageIdx() ? 'stand on healthy roots at flood' : 'grows with Wandel (from Castaway)', 8, y + 12 * z); }
+    else if (r.hand) { c.font = font(10); c.textAlign = 'left'; c.fillStyle = '#7a5a32'; c.fillText(stageIdx() ? 'stand on healthy roots at flood' : 'grows with Kinship (from Castaway)', 8, y + 12 * z); }
     c.globalAlpha = 1;
   });
   // main stream to the split
@@ -2686,11 +2692,11 @@ function drawTreeRoots() {
 }
 function renderTreeInfo() {
   const b = $('tiBuy'), n = treeSelU && (G.fi ? SPIEL.baum() : UNLOCKS.map(islandNode)).find(x => x.id === treeSelU);
-  if (!n) { $('tiN').textContent = G.fi ? 'One tree now: above the ground, round Fi, what the stamp and the cat can learn; below it the banyan\'s roots.' : 'Below the ground, the banyan\'s roots: what the tree can learn. Each costs free Wandel.'; b.style.display = 'none'; return; }
+  if (!n) { $('tiN').textContent = G.fi ? 'One tree now: above the ground, round Fi, what the stamp and the cat can learn; below it the banyan\'s roots.' : 'Below the ground, the banyan\'s roots: what the tree can learn. Each costs free Kinship.'; b.style.display = 'none'; return; }
   const hid = n.state === 'hidden', parN = n.p && n.p !== 'fi' && (G.fi ? SPIEL.baum() : UNLOCKS.map(islandNode)).find(x => x.id === n.p);
   $('tiN').innerHTML = hid ? '<b>Something in the dark</b> — not yet.' : '<b>' + n.name + '</b> — ' + n.desc + (n.state === 'max' ? ' <i>(learned)</i>' : n.state === 'locked' && parN ? ' <i>(learn ' + parN.name + ' first)</i>' : '');
   b.style.display = hid || !n.cur || n.state === 'max' || UNLOCKS.some(u => u.id === n.id && u.later) ? 'none' : 'inline-block';
-  b.textContent = (n.cur === 'wandel' ? 'Learn · ' + n.cost + ' free Wandel' : BAUM_CUR[n.cur] + ' ' + n.cost) + ' (you have ' + n.have + ')'; b.disabled = n.state !== 'buy' && n.next !== 'buy';   // v033: have / need
+  b.textContent = (n.cur === 'wandel' ? 'Learn · ' + n.cost + ' free Kinship' : BAUM_CUR[n.cur] + ' ' + n.cost) + ' (you have ' + n.have + ')'; b.disabled = n.state !== 'buy' && n.next !== 'buy';   // v033: have / need
 }
 if ($('tCv')) $('tCv').addEventListener('pointerdown', e => {
   const cv = $('tCv'), r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
@@ -3245,7 +3251,7 @@ function drawTendril(c, fx, fy, x, y, t, overflow, seed, ink, side) {
 }
 function roundRect(c, x, y, w, h, r) { c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
 function dots(c, t, col, s) { c.fillStyle = col; for (const [x, y] of t.border) c.fillRect(x - s / 2, y - s / 2, s, s); }
-// Befall badge above Robinson: black plate, colour by stage (green · yellow · orange · red = collapse)
+// Blight badge above Robinson: black plate, colour by stage (green · yellow · orange · red = collapse)
 function drawHollowWay(c, t) {
   const [gx, gy] = tileXY(G.gate), [cx, cy] = (m => [m[0], m[1] + 3])(pf(LM.cave[0], LM.cave[1])), dx = cx - gx, dy = cy - gy, L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L, ux = dx / L, uy = dy / L;
   const pt = u => { const w = Math.sin(u * Math.PI * 2.2 + 1) * 6 * Math.sin(u * Math.PI); return [gx + dx * u + nx * w, gy + dy * u + ny * w]; };
@@ -3644,7 +3650,7 @@ async function build() {
   setTimeout(() => {
     unlockRule('tide');
     say1('intro', 'tortoise', 'There you are. ' + tidesWord(T0) + ' tides on that beach and you never once looked up.' + (tutFertig() ? ' Tap a tile next to you to walk — the cat sniffs ahead for free. Let her.' : ''), true);
-    say1('opening', 'briefcase', 'Opening balance: one accountant, one cat, eight units of island tide — plus one golden spring tide for opening the survey. Spend wisely.');
+    say1('opening', 'briefcase', 'Opening balance: one accountant, one cat, eight hours of low water on the island — plus one golden spring hour for opening the survey. Spend wisely.');
   }, 1200);
   WELT.raf(frame);
 }
@@ -3665,7 +3671,7 @@ WELT.api = {
   laden: st => mapLoad(st),
   bilanz: () => bilanz(),   // v033: readable columns for the save file
   sprung: k => applySkip(k),   // v036: a shortcut from the cat window
-  tiden: () => ({ n: G.gezeit, max: RULES.baseTide, spring: G.spring, springMax: G.springMax, flash: G.springFlash !== undefined && G.now - G.springFlash < 3.5 ? 1 + Math.round(G.now * 6) % 6 : 0 }),   // v061: flash = a new spring tide
+  tiden: () => ({ n: G.gezeit, max: RULES.baseTide, spring: G.spring, springMax: G.springMax, flash: G.springFlash !== undefined && G.now - G.springFlash < 3.5 ? 1 + Math.round(G.now * 6) % 6 : 0 }),   // v061: flash = a new spring hour
   modal: () => ['card', 'prio', 'fight', 'call', 'drama', 'endScr', 'ledgerScr', 'rulesScr', 'treeScr', 'fiScr', 'mem', 'cave'].some(k => { const e = $(k); return e && e.style.display === 'flex'; }),
   fi: () => !!G.fi,
   ressI: () => { const h = ernte(); return { wFree: G.wFree, wandel: G.wandel, fruit: G.res.fruit, coco: G.res.coco, gecko: !!G.friends.gecko, fruitNext: h.fruit, cocoNext: h.coco }; },   // v040: for the shared resource row

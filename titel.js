@@ -97,7 +97,7 @@ function drawSwim(t) {
   ctx.textAlign = 'center'; ctx.font = '400 ' + (3.8 * U) + "px 'Patrick Hand', cursive";
   { const cap = (a, b, txt) => { if (s.t > a && s.t < b) { ctx.fillStyle = 'rgba(255,246,227,' + clamp(Math.min(s.t - a, b - s.t), 0, 1) + ')'; ctx.fillText(txt, W / 2, 18 * U); } };
     cap(2.2, 4.9, 'Before the hammock…'); cap(4.9, 7.8, '…there was the storm.'); }
-  if (s.t > 2.6) { ctx.fillStyle = 'rgba(255,246,227,' + (s.moved ? .55 : .5 + .3 * Math.sin(t * 3)) + ')'; /* v015: the hint stays for the whole swim */ ctx.font = '600 ' + (3.2 * U) + 'px Fredoka, sans-serif'; ctx.fillText('A / D — or hold the edges of the screen — to swim', W / 2, 92 * U); }
+  if (s.t > 2.6) { ctx.fillStyle = 'rgba(255,246,227,' + (s.moved ? .55 : .5 + .3 * Math.sin(t * 3)) + ')'; /* v015: the hint stays for the whole swim */ ctx.font = '600 ' + (3.2 * U) + 'px Fredoka, sans-serif'; ctx.fillText(TOUCH ? 'Hold the left or right edge to swim' : 'A / D — or hold the edges of the screen — to swim', W / 2, 92 * U); }
   if (s.black > 0) {
     ctx.fillStyle = 'rgba(0,0,0,' + Math.min(1, s.black) + ')'; ctx.fillRect(0, 0, W, H);
     if (s.black > 1.1) { ctx.fillStyle = 'rgba(255,246,227,' + Math.min(1, (s.black - 1.1) * 2) + ')'; ctx.font = '400 ' + (5 * U) + "px 'Patrick Hand', cursive"; ctx.fillText('…', W / 2, 50 * U); }

@@ -110,7 +110,7 @@ export const LOGBUCH = (() => {
       single.length ? 'He carries: ' + single.map(u => u.name).join('; ') + '.' : 'He carries nothing special.'];
     if (G) {
       const ul = ctx.unl.filter(u => G.unl && G.unl[u.id]);
-      R.push('On the island it is tide ' + num(G.tide) + '. The banyan stands at level ' + num(G.blevel) + ' with ' + num(G.sapGrow) + ' sap for growing and ' + num(G.sapProd) + ' for work; Wandel ' + num(G.wandel) + ', ' + num(G.wFree) + ' of it free; ' + num(G.spring) + ' of ' + num(G.springMax) + ' golden spring tides; ' + num(G.gezeit) + ' island tide left.');
+      R.push('On the island it is tide ' + num(G.tide) + '. The banyan stands at level ' + num(G.blevel) + ' with ' + num(G.sapGrow) + ' sap for growing and ' + num(G.sapProd) + ' for work; Kinship ' + num(G.wandel) + ', ' + num(G.wFree) + ' of it free; ' + num(G.spring) + ' of ' + num(G.springMax) + ' golden spring hours; ' + num(G.gezeit) + ' island hours left.');
       R.push('In store: ' + num((G.res || {}).fruit) + ' breadfruit, ' + num((G.res || {}).coco) + ' coconuts.');
       R.push("The Board's nerve: trust " + num((G.board || {}).tr) + ', staff ' + num((G.board || {}).st) + ', belief ' + num((G.board || {}).be) + '; intel ' + num((G.board || {}).intel) + '.');
       R.push(ul.length ? 'The banyan has learned: ' + ul.map(u => u.name).join('; ') + '.' : 'The banyan has learned nothing yet.');
@@ -158,7 +158,7 @@ export const LOGBUCH = (() => {
       const ic = await ctx.inselCtx(rest.g.t0 || 11); Object.assign(ctx, ic);   // the island must exist before its part can be read (its base map and defaults)
       const G = JSON.parse(J(ctx.gGrund)); Object.keys(ctx.gVorlage || {}).forEach(k => { if (!(k in G)) G[k] = leerWie(ctx.gVorlage[k]); });
       Object.keys(rest.g).forEach(k => { G[k] = SETS_G.includes(k) ? unpackSet(rest.g[k]) : rest.g[k]; });
-      const [tide, blevel, sapG, sapP, wandel, wFree, spring, springMax, gezeit] = zahl(new RegExp('On the island it is tide ' + N + '\\. The banyan stands at level ' + N + ' with ' + N + ' sap for growing and ' + N + ' for work; Wandel ' + N + ', ' + N + ' of it free; ' + N + ' of ' + N + ' golden spring tides; ' + N + ' island tide left\\.'), R, 'the island');
+      const [tide, blevel, sapG, sapP, wandel, wFree, spring, springMax, gezeit] = zahl(new RegExp('On the island it is tide ' + N + '\\. The banyan stands at level ' + N + ' with ' + N + ' sap for growing and ' + N + ' for work; (?:Wandel|Kinship) ' + N + ', ' + N + ' of it free; ' + N + ' of ' + N + ' golden spring (?:tides|hours); ' + N + ' island (?:tide|hours) left\\.'), R, 'the island');
       Object.assign(G, { tide, blevel, sapGrow: sapG, sapProd: sapP, wandel, wFree, spring, springMax, gezeit });
       const [fruit, coco] = zahl(new RegExp('In store: ' + N + ' breadfruit, ' + N + ' coconuts\\.'), R, 'the store');
       G.res = Object.assign({}, ctx.gGrund.res, rest.g.res || {}, { fruit, coco }); delete G.res.undefined;
