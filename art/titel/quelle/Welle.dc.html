@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Die Welle</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#7fd8cf}a:hover{color:#c9efe8}
+</style>
+</helmet>
+<div style="width: 1280px; height: 720px; position: relative; overflow: hidden; background: #071a22; font-family: 'Space Grotesk', sans-serif">
+<svg width="1280" height="720" viewBox="0 0 1280 720" aria-hidden="true" style="position: absolute; left: 0; top: 0">
+<defs>
+<clipPath id="eye"><circle cx="460" cy="400" r="74"></circle></clipPath>
+</defs>
+<rect x="0" y="600" width="1280" height="120" fill="#0b2c35"></rect>
+<g fill="none" stroke-linecap="round">
+<path d="M120 400 A340 340 0 1 1 460 740" stroke="#12505a" stroke-width="40"></path>
+<path d="M160 400 A300 300 0 1 1 460 700" stroke="#1b6f74" stroke-width="56"></path>
+<path d="M230 400 A230 230 0 1 1 460 630" stroke="#2aa7a0" stroke-width="56"></path>
+<path d="M295 400 A165 165 0 1 1 460 565" stroke="#7fd8cf" stroke-width="44"></path>
+<path d="M350 400 A110 110 0 1 1 460 510" stroke="#c9efe8" stroke-width="26"></path>
+</g>
+<g clip-path="url(#eye)">
+<rect x="380" y="320" width="160" height="90" fill="#f3c97a"></rect>
+<rect x="380" y="410" width="160" height="70" fill="#1b6f74"></rect>
+<path d="M418 412 Q440 392 470 394 Q492 396 506 412 Z" fill="#071a22"></path>
+<path d="M470 396 C468 382 460 374 446 370" stroke="#071a22" stroke-width="4" fill="none" stroke-linecap="round"></path>
+<ellipse cx="442" cy="368" rx="14" ry="5" fill="#071a22"></ellipse>
+<line x1="400" y1="424" x2="440" y2="424" stroke="#f3c97a" stroke-width="2" opacity=".6"></line>
+</g>
+<circle cx="460" cy="400" r="74" fill="none" stroke="#eaf7f2" stroke-width="3" opacity=".6"></circle>
+<path d="M150 300 A340 340 0 0 1 700 160" fill="none" stroke="#eaf7f2" stroke-width="10" stroke-linecap="round"></path>
+<g fill="#eaf7f2">
+<circle cx="720" cy="150" r="7"></circle><circle cx="744" cy="138" r="5"></circle><circle cx="762" cy="150" r="4"></circle>
+<circle cx="736" cy="168" r="4"></circle><circle cx="780" cy="132" r="3"></circle><circle cx="700" cy="128" r="4"></circle>
+<circle cx="130" cy="290" r="5"></circle><circle cx="112" cy="310" r="3"></circle>
+</g>
+<g stroke="#12505a" stroke-width="3" stroke-linecap="round" opacity=".8">
+<line x1="820" y1="640" x2="960" y2="640"></line>
+<line x1="1000" y1="664" x2="1180" y2="664"></line>
+<line x1="880" y1="690" x2="980" y2="690"></line>
+</g>
+</svg>
+<div style="position: absolute; left: 850px; top: 236px; display: flex; flex-direction: column; gap: 4px">
+<div style="font-size: 16px; font-weight: 700; letter-spacing: 0.42em; color: #7fd8cf; margin-bottom: 18px">KRUMMHOLZ</div>
+<div style="font-size: 76px; font-weight: 700; line-height: 0.95; letter-spacing: -0.01em; color: #eaf7f2">ROBINSON</div>
+<div style="font-size: 76px; font-weight: 700; line-height: 0.95; letter-spacing: -0.01em; color: #2aa7a0">ISLAND</div>
+<div style="margin-top: 26px; font-size: 16px; letter-spacing: 0.18em; color: #c9efe8; opacity: 0.85">PULL IN</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":720}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
